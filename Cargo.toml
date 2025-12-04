@@ -1,6 +1,6 @@
 [package]
-name = "app-boilerplate-rust"
-version = "1.7.6"
+name = "app-zcash-rust"
+version = "0.0.1"
 authors = ["Ledger"]
 edition = "2021"
 
