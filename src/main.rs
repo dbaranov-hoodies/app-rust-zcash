@@ -25,7 +25,6 @@ mod app_ui {
     pub mod sign;
 }
 mod handlers {
-    pub mod get_config;
     pub mod get_public_key;
     pub mod get_trusted_input;
     pub mod get_version;
@@ -58,12 +57,9 @@ use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE, INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN,
-        INS_SETUP, INS_SIGN_MESSAGE, ZCASH_CLA,
+        INS_SIGN_MESSAGE, ZCASH_CLA,
     },
-    handlers::{
-        get_config::handler_get_config, get_trusted_input::handler_get_trusted_input,
-        sign_msg::handler_sign_msg,
-    },
+    handlers::{get_trusted_input::handler_get_trusted_input, sign_msg::handler_sign_msg},
 };
 
 pub const P1_FIRST: u8 = 0x00;
@@ -125,7 +121,6 @@ pub enum SignHashFlag {
 
 /// Possible input commands received through APDUs.
 pub enum Instruction {
-    GetConfig,
     GetVersion,
     GetPubkey {
         display: bool,
@@ -161,7 +156,6 @@ impl TryFrom<ApduHeader> for Instruction {
     /// [`sample_main`] to have this verification automatically performed by the SDK.
     fn try_from(value: ApduHeader) -> Result<Self, Self::Error> {
         match (value.ins, value.p1, value.p2) {
-            (INS_SETUP, 0, 0) => Ok(Instruction::GetConfig),
             (INS_GET_FIRMWARE_VERSION, 0, 0) => Ok(Instruction::GetVersion),
             (INS_GET_WALLET_PUBLIC_KEY, 0 | 1, 0) => Ok(Instruction::GetPubkey {
                 display: value.p1 != 0,
@@ -259,7 +253,6 @@ extern "C" fn sample_main() {
 
 fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Result<(), AppSW> {
     match ins {
-        Instruction::GetConfig => handler_get_config(comm),
         Instruction::GetVersion => handler_get_version(comm),
         Instruction::GetPubkey { display } => handler_get_public_key(comm, *display),
         Instruction::GetTrustedInput { first, next } => {

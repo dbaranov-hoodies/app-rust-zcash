@@ -117,5 +117,5 @@ pub fn handler_sign_tx(
 }
 
 fn compute_signature_and_append(_comm: &mut Comm, _ctx: &mut TxContext) -> Result<(), AppSW> {
-    todo!()
+    Ok(())
 }
