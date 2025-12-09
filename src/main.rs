@@ -26,10 +26,13 @@ mod app_ui {
 }
 mod handlers {
     pub mod get_public_key;
+    pub mod get_trusted_input;
     pub mod get_version;
+    pub mod sign_msg;
     pub mod sign_tx;
 }
 
+mod consts;
 mod settings;
 
 use app_ui::menu::ui_menu_main;
@@ -39,7 +42,7 @@ use handlers::{
     sign_tx::{handler_sign_tx, TxContext},
 };
 use ledger_device_sdk::{
-    io::{ApduHeader, Comm, Reply, StatusWords},
+    io::{ApduHeader, Comm, Reply},
     nbgl::init_comm,
 };
 
@@ -50,32 +53,54 @@ extern crate alloc;
 
 use ledger_device_sdk::nbgl::{NbglReviewStatus, StatusType};
 
-// P2 for last APDU to receive.
-const P2_SIGN_TX_LAST: u8 = 0x00;
-// P2 for more APDU to receive.
-const P2_SIGN_TX_MORE: u8 = 0x80;
-// P1 for first APDU number.
-const P1_SIGN_TX_START: u8 = 0x00;
-// P1 for maximum APDU number.
-const P1_SIGN_TX_MAX: u8 = 0x03;
+use crate::{
+    consts::{
+        INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
+        INS_HASH_INPUT_FINALIZE, INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN,
+        INS_SIGN_MESSAGE, ZCASH_CLA,
+    },
+    handlers::{get_trusted_input::handler_get_trusted_input, sign_msg::handler_sign_msg},
+};
+
+pub const P1_FIRST: u8 = 0x00;
+pub const P1_NEXT: u8 = 0x80;
 
 // Application status words.
 #[repr(u16)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum AppSW {
-    Deny = 0x6985,
-    WrongP1P2 = 0x6A86,
+    PinRemainingAttempts = 0x63C0,
+    WrongApduLength = 0x6700,
+    CommandIncompatibleFileStructure = 0x6981,
+    SecurityStatusNotSatisfied = 0x6982,
+    IncorrectData = 0x6A80,
+    NotEnoughMemorySpace = 0x6A84,
+    ReferencedDataNotFound = 0x6A88,
+    FileAlreadyExists = 0x6A89,
+    SwapWithoutTrustedInputs = 0x6A8A,
+    WrongP1P2 = 0x6B00,
     InsNotSupported = 0x6D00,
     ClaNotSupported = 0x6E00,
-    TxDisplayFail = 0xB001,
-    AddrDisplayFail = 0xB002,
-    TxWrongLength = 0xB004,
-    TxParsingFail = 0xB005,
-    TxHashFail = 0xB006,
-    TxSignFail = 0xB008,
-    KeyDeriveFail = 0xB009,
-    VersionParsingFail = 0xB00A,
-    WrongApduLength = StatusWords::BadLen as u16,
+    MemoryProblem = 0x9240,
+    NoEfSelected = 0x9400,
+    InvalidOffset = 0x9402,
+    FileNotFound = 0x9404,
+    InconsistentFile = 0x9408,
+    AlgorithmNotSupported = 0x9484,
+    InvalidKcv = 0x9485,
+    CodeNotInitialized = 0x9802,
+    AccessConditionNotFulfilled = 0x9804,
+    ContradictionSecretCodeStatus = 0x9808,
+    ContradictionInvalidation = 0x9810,
+    CodeBlocked = 0x9840,
+    MaxValueReached = 0x9850,
+    GpAuthFailed = 0x6300,
+    Licensing = 0x6F42,
+    Halted = 0x6FAA,
+    Deny = 0x6985,
+    TxWrongLength = 0x6F00, // TechnicalProblem = 0x6F00,
+    VersionParsingFail = 0x6F01,
+    TxParsingFail = 0x6F02,
     Ok = 0x9000,
 }
 
@@ -85,12 +110,34 @@ impl From<AppSW> for Reply {
     }
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SignHashFlag {
+    Start = INS_HASH_INPUT_START,
+    Finalize = INS_HASH_INPUT_FINALIZE,
+    Sign = INS_HASH_SIGN,
+    FinalizeFull = INS_HASH_INPUT_FINALIZE_FULL,
+}
+
 /// Possible input commands received through APDUs.
 pub enum Instruction {
     GetVersion,
-    GetAppName,
-    GetPubkey { display: bool },
-    SignTx { chunk: u8, more: bool },
+    GetPubkey {
+        display: bool,
+    },
+    GetTrustedInput {
+        first: bool,
+        next: bool,
+    },
+    SignTx {
+        flag: SignHashFlag,
+        first: bool,
+        next: bool,
+    },
+    SignMessage {
+        first: bool,
+        next: bool,
+    },
 }
 
 impl TryFrom<ApduHeader> for Instruction {
@@ -109,20 +156,45 @@ impl TryFrom<ApduHeader> for Instruction {
     /// [`sample_main`] to have this verification automatically performed by the SDK.
     fn try_from(value: ApduHeader) -> Result<Self, Self::Error> {
         match (value.ins, value.p1, value.p2) {
-            (3, 0, 0) => Ok(Instruction::GetVersion),
-            (4, 0, 0) => Ok(Instruction::GetAppName),
-            (5, 0 | 1, 0) => Ok(Instruction::GetPubkey {
+            (INS_GET_FIRMWARE_VERSION, 0, 0) => Ok(Instruction::GetVersion),
+            (INS_GET_WALLET_PUBLIC_KEY, 0 | 1, 0) => Ok(Instruction::GetPubkey {
                 display: value.p1 != 0,
             }),
-            (6, P1_SIGN_TX_START, P2_SIGN_TX_MORE)
-            | (6, 1..=P1_SIGN_TX_MAX, P2_SIGN_TX_LAST | P2_SIGN_TX_MORE) => {
+            (INS_GET_TRUSTED_INPUT, p1, _) => Ok(Instruction::GetTrustedInput {
+                first: p1 == P1_FIRST,
+                next: p1 == P1_NEXT,
+            }),
+            (
+                INS_HASH_INPUT_START
+                | INS_HASH_INPUT_FINALIZE
+                | INS_HASH_SIGN
+                | INS_HASH_INPUT_FINALIZE_FULL,
+                p1,
+                0,
+            ) => {
+                let state = match value.ins {
+                    INS_HASH_INPUT_START => SignHashFlag::Start,
+                    INS_HASH_INPUT_FINALIZE => SignHashFlag::Finalize,
+                    INS_HASH_SIGN => SignHashFlag::Sign,
+                    INS_HASH_INPUT_FINALIZE_FULL => SignHashFlag::FinalizeFull,
+                    _ => unreachable!(),
+                };
                 Ok(Instruction::SignTx {
-                    chunk: value.p1,
-                    more: value.p2 == P2_SIGN_TX_MORE,
+                    flag: state,
+                    first: p1 == P1_FIRST,
+                    next: p1 == P1_NEXT,
                 })
             }
-            (3..=6, _, _) => Err(AppSW::WrongP1P2),
-            (_, _, _) => Err(AppSW::InsNotSupported),
+            (INS_SIGN_MESSAGE, p1, 0) => Ok(Instruction::SignMessage {
+                first: p1 == P1_FIRST,
+                next: p1 == P1_NEXT,
+            }),
+            (_, _, _) => {
+                if value.p1 != 0 || value.p2 != 0 {
+                    return Err(AppSW::WrongP1P2);
+                }
+                Err(AppSW::InsNotSupported)
+            }
         }
     }
 }
@@ -154,7 +226,7 @@ extern "C" fn sample_main() {
     // Create the communication manager, and configure it to accept only APDU from the 0xe0 class.
     // If any APDU with a wrong class value is received, comm will respond automatically with
     // BadCla status word.
-    let mut comm = Comm::new().set_expected_cla(0xe0);
+    let mut comm = Comm::new().set_expected_cla(ZCASH_CLA);
     init_comm(&mut comm);
 
     let mut tx_ctx = TxContext::new();
@@ -181,12 +253,14 @@ extern "C" fn sample_main() {
 
 fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Result<(), AppSW> {
     match ins {
-        Instruction::GetAppName => {
-            comm.append(env!("CARGO_PKG_NAME").as_bytes());
-            Ok(())
-        }
         Instruction::GetVersion => handler_get_version(comm),
         Instruction::GetPubkey { display } => handler_get_public_key(comm, *display),
-        Instruction::SignTx { chunk, more } => handler_sign_tx(comm, *chunk, *more, ctx),
+        Instruction::GetTrustedInput { first, next } => {
+            handler_get_trusted_input(comm, *first, *next)
+        }
+        Instruction::SignTx { flag, first, next } => {
+            handler_sign_tx(comm, ctx, *flag, *first, *next)
+        }
+        Instruction::SignMessage { first, next } => handler_sign_msg(comm, ctx, *first, *next),
     }
 }

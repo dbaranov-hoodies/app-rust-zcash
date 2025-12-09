@@ -27,7 +27,7 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let path: Bip32Path = data.try_into()?;
 
     let (k, cc) = Secp256k1::derive_from(path.as_ref());
-    let pk = k.public_key().map_err(|_| AppSW::KeyDeriveFail)?;
+    let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
 
     // Display address on device if requested
     if display {

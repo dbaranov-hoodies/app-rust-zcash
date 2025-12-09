@@ -16,10 +16,8 @@
  *****************************************************************************/
 use crate::app_ui::sign::ui_display_tx;
 use crate::utils::Bip32Path;
-use crate::AppSW;
+use crate::{AppSW, SignHashFlag};
 use alloc::vec::Vec;
-use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
-use ledger_device_sdk::hash::{sha3::Keccak256, HashInit};
 use ledger_device_sdk::io::Comm;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
@@ -72,14 +70,15 @@ impl TxContext {
 
 pub fn handler_sign_tx(
     comm: &mut Comm,
-    chunk: u8,
-    more: bool,
     ctx: &mut TxContext,
+    flag: SignHashFlag,
+    _first: bool,
+    _next: bool,
 ) -> Result<(), AppSW> {
     // Try to get data from comm
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
     // First chunk, try to parse the path
-    if chunk == 0 {
+    if flag == SignHashFlag::Start {
         // Reset transaction context
         ctx.reset();
         // This will propagate the error if the path is invalid
@@ -96,7 +95,7 @@ pub fn handler_sign_tx(
         ctx.raw_tx.extend(data);
 
         // If we expect more chunks, return
-        if more {
+        if flag == SignHashFlag::Finalize {
             ctx.review_finished = false;
             Ok(())
         // Otherwise, try to parse the transaction
@@ -117,17 +116,6 @@ pub fn handler_sign_tx(
     }
 }
 
-fn compute_signature_and_append(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), AppSW> {
-    let mut keccak256 = Keccak256::new();
-    let mut message_hash: [u8; 32] = [0u8; 32];
-
-    let _ = keccak256.hash(&ctx.raw_tx, &mut message_hash);
-
-    let (sig, siglen, parity) = Secp256k1::derive_from_path(ctx.path.as_ref())
-        .deterministic_sign(&message_hash)
-        .map_err(|_| AppSW::TxSignFail)?;
-    comm.append(&[siglen as u8]);
-    comm.append(&sig[..siglen as usize]);
-    comm.append(&[parity as u8]);
+fn compute_signature_and_append(_comm: &mut Comm, _ctx: &mut TxContext) -> Result<(), AppSW> {
     Ok(())
 }
