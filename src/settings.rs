@@ -86,11 +86,10 @@ impl Settings {
     pub fn set_trusted_input_key(&mut self, trusted_input_key: [u8; 32]) {
         let data = &raw mut TRUSTED_INPUT_KEY;
         let storage = unsafe { (*data).get_mut() };
-        unsafe {
-            storage.update(&TrustedKeySettings {
-                is_initialized: true,
-                key: trusted_input_key,
-            });
-        }
+
+        storage.update(&TrustedKeySettings {
+            is_initialized: true,
+            key: trusted_input_key,
+        });
     }
 }

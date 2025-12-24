@@ -8,7 +8,6 @@ use crate::log::error;
 
 pub trait Blake2b256Personalization {
     fn init_with_perso(&mut self, personalization: &[u8]);
-    fn with_perso(personalization: &[u8]) -> Blake2b_256;
 }
 
 impl Blake2b256Personalization for Blake2b_256 {
@@ -19,22 +18,11 @@ impl Blake2b256Personalization for Blake2b_256 {
             "Blake2b256 personalization must be 16 bytes"
         );
 
-        let mut ctx = self.as_ctx_mut() as *mut _;
+        let ctx = self.as_ctx_mut() as *mut _;
 
         unsafe {
             init_blake2b256_with_perso(ctx, perso.as_ptr(), perso.len());
         }
-    }
-
-    fn with_perso(perso: &[u8]) -> Blake2b_256 {
-        let mut hasher = Blake2b_256::default();
-        let mut ctx = hasher.as_ctx_mut() as *mut _;
-
-        unsafe {
-            init_blake2b256_with_perso(ctx, perso.as_ptr(), perso.len());
-        }
-
-        hasher
     }
 }
 

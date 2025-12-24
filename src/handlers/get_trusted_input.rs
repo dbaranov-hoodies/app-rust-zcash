@@ -1,21 +1,19 @@
 use crate::{
     handlers::sign_tx::TxContext,
     log::{self, error},
-    parser::{ParseError, ParseMode},
+    parser::ParseMode,
     settings::Settings,
     utils::{read_u32, Endianness},
     AppSW,
 };
 use ledger_device_sdk::{
-    hmac::{self, sha2::Sha2_256 as HmacSha256, HMACInit},
+    hmac::{sha2::Sha2_256 as HmacSha256, HMACInit},
     io::Comm,
     random::rand_bytes,
 };
 
 const MAGIC_TRUSTED_INPUT: u8 = 0x32;
 const TRUSTED_INPUT_SIZE: usize = 2 + 2 + 32 + 4 + 8; // magic + rand + txid + idx + amount
-
-static mut TRUSTED_INPUT_KEY: [u8; 32] = [0u8; 32];
 
 pub fn handler_get_trusted_input(
     comm: &mut Comm,
@@ -30,7 +28,7 @@ pub fn handler_get_trusted_input(
         log::info!("Init parser");
         *ctx = TxContext::new();
 
-        let transaction_trusted_input_idx = read_u32(&data, Endianness::Big, false)?;
+        let transaction_trusted_input_idx = read_u32(data, Endianness::Big, false)?;
         log::info!("Trusted input idx: {}", transaction_trusted_input_idx);
         ctx.set_transaction_trusted_input_idx(transaction_trusted_input_idx);
 
@@ -38,7 +36,7 @@ pub fn handler_get_trusted_input(
     }
 
     ctx.parser
-        .parse_chunk(&data, ParseMode::TrustedInput)
+        .parse_chunk(data, ParseMode::TrustedInput)
         .map_err(|e| {
             error!("Error parsing trusted input: {:?}", e);
             AppSW::IncorrectData

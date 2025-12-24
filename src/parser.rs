@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
-use core::{cmp, hash, iter, mem};
-use zcash_primitives::transaction::components::{orchard, sapling};
+use core::{cmp, iter, mem};
 use zcash_primitives::transaction::sighash_v5::{
     ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_SCRIPTS_HASH_PERSONALIZATION,
 };
@@ -15,11 +14,11 @@ use zcash_primitives::transaction::txid::{
     ZCASH_PREVOUTS_HASH_PERSONALIZATION, ZCASH_SEQUENCE_HASH_PERSONALIZATION,
     ZCASH_TRANSPARENT_HASH_PERSONALIZATION, ZCASH_TX_PERSONALIZATION_PREFIX,
 };
-use zcash_primitives::transaction::{Transaction, TxVersion};
+use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
 use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::Script;
-use zcash_transparent::bundle::{Authorization, Authorized, OutPoint, TxIn};
+use zcash_transparent::bundle::OutPoint;
 
 use crate::log::{debug, error, info};
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
@@ -28,12 +27,11 @@ use crate::utils::HexSlice;
 #[derive(Debug)]
 pub enum ParseError {
     InvalidFormat,
-    //IoError(IoError),
 }
 
 pub enum ParseMode {
     TrustedInput,
-    Signature,
+    _Signature,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -70,7 +68,7 @@ impl<'b> ByteReader<'b> {
         self.buf.len() - self.pos
     }
 
-    pub fn remaining_debug(&self) {
+    pub fn _remaining_debug(&self) {
         debug!(
             "Remaining bytes (len {}) {:X?}",
             self.remaining_bytes(),
@@ -91,8 +89,7 @@ impl Read for ByteReader<'_> {
 }
 
 pub struct Parser {
-    mode: Option<ParseMode>,
-    script_bytes: Vec<u8>,
+    _mode: Option<ParseMode>,
 
     state: ParseState,
     tx_version: Option<TxVersion>,
@@ -122,14 +119,15 @@ pub struct Parser {
     transaction_trusted_input_idx: Option<u32>,
     is_transaction_trusted_input_processed: bool,
     amount: u64,
+
+    script_bytes: Vec<u8>,
     tx_id: [u8; 32],
 }
 
 impl Parser {
     pub fn new() -> Self {
         Parser {
-            mode: None,
-            script_bytes: Vec::new(),
+            _mode: None,
             state: ParseState::None,
             tx_version: None,
             branch_id: None,
@@ -155,6 +153,8 @@ impl Parser {
             transaction_trusted_input_idx: None,
             is_transaction_trusted_input_processed: false,
             amount: 0,
+
+            script_bytes: Vec::new(),
             tx_id: [0u8; 32],
         }
     }
@@ -179,11 +179,11 @@ impl Parser {
         self.amount
     }
 
-    pub fn parse_chunk(&mut self, data: &[u8], mode: ParseMode) -> Result<(), ParseError> {
+    pub fn parse_chunk(&mut self, data: &[u8], _mode: ParseMode) -> Result<(), ParseError> {
         let mut reader = ByteReader::new(data);
 
         while reader.remaining_bytes() > 0 {
-            let mut prev_state = self.state.clone();
+            let prev_state = self.state;
 
             match self.state {
                 ParseState::None => self.parse_header(&mut reader)?,
@@ -207,7 +207,6 @@ impl Parser {
                 ParseState::TransactionParsed => {
                     break;
                 }
-                _ => return Err(ParseError::InvalidFormat),
             }
 
             if self.state != prev_state {

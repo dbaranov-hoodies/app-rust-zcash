@@ -9,7 +9,6 @@ use crate::{
 
 pub mod blake2b_256_pers;
 
-
 // Buffer for bs58 encoding output
 struct OutBuf<'b, const N: usize> {
     out: &'b mut [u8; N],
@@ -177,7 +176,7 @@ pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
 #[derive(PartialEq)]
 pub enum Endianness {
     Big,
-    Little,
+    _Little,
 }
 
 pub fn read_u32(buffer: &[u8], endianness: Endianness, skip_sign: bool) -> Result<u32, AppSW> {
@@ -198,25 +197,9 @@ pub fn read_u32(buffer: &[u8], endianness: Endianness, skip_sign: bool) -> Resul
     Ok(word)
 }
 
-pub fn write_u32_be(buffer: &mut [u8], value: u32) -> Result<(), AppSW> {
-    if buffer.len() < 4 {
-        return Err(AppSW::IncorrectData);
-    }
-    buffer[..4].copy_from_slice(&value.to_be_bytes());
-    Ok(())
-}
-
-pub fn write_u32_le(buffer: &mut [u8], value: u32) -> Result<(), AppSW> {
-    if buffer.len() < 4 {
-        return Err(AppSW::IncorrectData);
-    }
-    buffer[..4].copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
 pub struct HexSlice<'a>(pub &'a [u8]);
 
-impl<'a> core::fmt::Display for HexSlice<'a> {
+impl core::fmt::Display for HexSlice<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for byte in self.0 {
             write!(f, "{:02X}", byte)?;
