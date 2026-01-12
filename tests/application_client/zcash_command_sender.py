@@ -22,6 +22,10 @@ class P1(IntEnum):
     # Parameter 1 for screen confirmation for GET_PUBLIC_KEY.
     P1_CONFIRM = 0x01
 
+class P2(IntEnum):
+    # Parameter 2 default value
+    P2_NONE = 0x00
+
 class InsType(IntEnum):
     GET_VERSION    = 0x03
     GET_APP_NAME   = 0x04
@@ -65,7 +69,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=0xB0,  # specific CLA for BOLOS
                                      ins=0x01,  # specific INS for get_app_and_version
                                      p1=P1.P1_START,
-                                     p2=0x00,
+                                     p2=P2.P2_NONE,
                                      data=b"")
 
 
@@ -73,7 +77,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_VERSION,
                                      p1=P1.P1_START,
-                                     p2=0x00,
+                                     p2=P2.P2_NONE,
                                      data=b"")
 
 
@@ -81,7 +85,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_APP_NAME,
                                      p1=P1.P1_START,
-                                     p2=0x00,
+                                     p2=P2.P2_NONE,
                                      data=b"")
 
 
@@ -89,7 +93,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_WALLET_PUBLIC_KEY,
                                      p1=P1.P1_START,
-                                     p2=0x00,
+                                     p2=P2.P2_NONE,
                                      data=pack_derivation_path(path))
 
 
@@ -98,7 +102,7 @@ class ZcashCommandSender:
         with self.backend.exchange_async(cla=CLA,
                                          ins=InsType.GET_WALLET_PUBLIC_KEY,
                                          p1=P1.P1_CONFIRM,
-                                         p2=0x00,
+                                         p2=P2.P2_NONE,
                                          data=pack_derivation_path(path)) as response:
             yield response
 
@@ -116,14 +120,14 @@ class ZcashCommandSender:
             self.backend.exchange(cla=CLA,
                                   ins=InsType.GET_TRUSTED_INPUT,
                                   p1=p1,
-                                  p2=0x00,
+                                  p2=P2.P2_NONE,
                                   data=c)
             p1 = P1.P1_MORE
 
         with self.backend.exchange_async(cla=CLA,
                                             ins=InsType.GET_TRUSTED_INPUT,
                                             p1=P1.P1_MORE,
-                                            p2=0x00,
+                                            p2=P2.P2_NONE,
                                             data=chunks[-1]) as response:
             yield response
 
@@ -132,7 +136,7 @@ class ZcashCommandSender:
         self.backend.exchange(cla=CLA,
                               ins=InsType.SIGN_TX,
                               p1=P1.P1_START,
-                              p2=0x00,
+                              p2=P2.P2_NONE,
                               data=pack_derivation_path(path))
         messages = split_message(transaction, MAX_APDU_LEN)
         idx: int = P1.P1_START + 1
@@ -141,14 +145,14 @@ class ZcashCommandSender:
             self.backend.exchange(cla=CLA,
                                   ins=InsType.SIGN_TX,
                                   p1=idx,
-                                  p2=0x00,
+                                  p2=P2.P2_NONE,
                                   data=msg)
             idx += 1
 
         with self.backend.exchange_async(cla=CLA,
                                          ins=InsType.SIGN_TX,
                                          p1=idx,
-                                         p2=0x00,
+                                         p2=P2.P2_NONE,
                                          data=messages[-1]) as response:
             yield response
 
