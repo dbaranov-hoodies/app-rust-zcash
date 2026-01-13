@@ -7,6 +7,8 @@ use crate::{
     AppSW,
 };
 
+pub mod blake2b_256_pers;
+
 // Buffer for bs58 encoding output
 struct OutBuf<'b, const N: usize> {
     out: &'b mut [u8; N],
@@ -169,4 +171,39 @@ pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
     debug!("Address Base58: {}", address_base58);
 
     Ok(address_base58)
+}
+
+pub enum Endianness {
+    Big,
+    _Little,
+}
+
+pub fn read_u32(buffer: &[u8], endianness: Endianness, skip_sign: bool) -> Result<u32, AppSW> {
+    if buffer.len() < 4 {
+        return Err(AppSW::IncorrectData);
+    }
+
+    let buffer4 = buffer[..4].try_into().expect("cannot fail");
+
+    let mut word = match endianness {
+        Endianness::Big => u32::from_be_bytes(buffer4),
+        Endianness::_Little => u32::from_le_bytes(buffer4),
+    };
+
+    if skip_sign {
+        word &= 0x7FFF_FFFF;
+    }
+
+    Ok(word)
+}
+
+pub struct HexSlice<'a>(pub &'a [u8]);
+
+impl core::fmt::Display for HexSlice<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
+    }
 }
