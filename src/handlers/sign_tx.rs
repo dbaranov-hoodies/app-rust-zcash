@@ -14,7 +14,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::app_ui::sign::{ui_display_tx_fees};
 use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::blake2b_256_pers::Blake2b256Personalization;
@@ -23,6 +22,8 @@ use crate::utils::{
     public_key_hash160, public_key_to_address_base58, Bip32Path, HexSlice, PubKeyWithCC,
 };
 use crate::AppSW;
+use alloc::string::String;
+use alloc::vec::Vec;
 use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
@@ -49,6 +50,13 @@ pub struct Hashers {
 }
 
 #[derive(Default)]
+pub struct TxOutput {
+    pub amount: u64,
+    pub address: String,
+    pub is_change: bool,
+}
+
+#[derive(Default)]
 pub struct TxInfo {
     pub tx_version: Option<TxVersion>,
     pub branch_id: Option<BranchId>,
@@ -57,6 +65,7 @@ pub struct TxInfo {
     pub expiry_height: u32,
     pub total_amount: u64,
 
+    pub outputs: Vec<TxOutput>,
     pub is_change_found: bool,
     pub change_address: [u8; 20],
 
@@ -188,14 +197,6 @@ pub fn handler_hash_input_finalize_full(
     ctx: &mut TxContext,
     is_change: bool,
 ) -> Result<(), AppSW> {
-    handler_hash_input_finalize_full_internal(comm, ctx, is_change)
-}
-
-fn handler_hash_input_finalize_full_internal(
-    comm: &mut Comm,
-    ctx: &mut TxContext,
-    is_change: bool,
-) -> Result<(), AppSW> {
     let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if data.is_empty() {
@@ -273,38 +274,26 @@ fn handler_hash_input_finalize_full_internal(
     }
 
     if !ctx.is_all_outputs_validated {
-        ctx.output_parser.parse(
-            &mut crate::parser::OutputParserCtx {
-                tx_info: &mut ctx.tx_info,
-                hashers: &mut ctx.hashers,
-            },
-            data,
-        ).map_err(|e| {
-            error!("Error parsing TX output: {:#?}", e);
-            match e.source {
-                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
-                ParserSourceError::AppSW(sw) => sw,
-                ParserSourceError::UserDenied => AppSW::Deny,
-                _ => AppSW::IncorrectData,
-            }
-        })?;
+        ctx.output_parser
+            .parse(
+                &mut crate::parser::OutputParserCtx {
+                    tx_info: &mut ctx.tx_info,
+                    hashers: &mut ctx.hashers,
+                },
+                data,
+            )
+            .map_err(|e| {
+                error!("Error parsing TX output: {:#?}", e);
+                match e.source {
+                    ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                    ParserSourceError::AppSW(sw) => sw,
+                    ParserSourceError::UserDenied => AppSW::Deny,
+                    _ => AppSW::IncorrectData,
+                }
+            })?;
 
         if ctx.output_parser.is_finished() {
-            // TODO: move to output parser
-            let fees = ctx
-                .tx_info
-                .total_amount
-                .checked_sub(ctx.output_parser.total_output_amount)
-                .ok_or(AppSW::IncorrectData)
-                .inspect_err(|_| error!("Failed to calculate fees"))?;
-
-            info!("Tx fees: {}", fees);
-            if fees != 0 {
-                if !ui_display_tx_fees(fees)? {
-                    return Err(AppSW::Deny);
-                }
-            }
-
+            ctx.review_finished = true;
             info!("All outputs parsed");
             ctx.is_all_outputs_validated = true;
         }

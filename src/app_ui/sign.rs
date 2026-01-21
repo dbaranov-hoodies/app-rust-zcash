@@ -14,12 +14,14 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::{AppSW, app_ui::load_glyph};
+use crate::{app_ui::load_glyph, AppSW};
 
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec::Vec};
 
+use crate::handlers::sign_tx::TxOutput;
 use include_gif::include_gif;
 use ledger_device_sdk::nbgl::{Field, NbglGlyph, NbglReview};
+use zcash_primitives::transaction::fees;
 
 fn format_zec_amount(amount: u64) -> String {
     // ZEC has 8 decimal places
@@ -68,18 +70,14 @@ pub fn ui_display_tx_output(
 }
 
 /// Displays transaction fees and returns true if user approved it.
-pub fn ui_display_tx_fees(
-    fees: u64,
-) -> Result<bool, AppSW> {
+pub fn ui_display_tx_fees(fees: u64) -> Result<bool, AppSW> {
     let fees_str = format_zec_amount(fees);
 
     // Define transaction review fields
-    let my_fields = [
-        Field {
-            name: "Fees",
-            value: fees_str.as_str(),
-        },
-    ];
+    let my_fields = [Field {
+        name: "Fees",
+        value: fees_str.as_str(),
+    }];
 
     // Create transaction review
     let title = format!("Confirm transaction");
@@ -88,6 +86,59 @@ pub fn ui_display_tx_fees(
     // with constant generic parameters of NbglReview. Default values are 32 and 1024 respectively.
     let review: NbglReview = NbglReview::new()
         .titles(&title, "", "Accept and send")
+        .glyph(load_glyph());
+
+    Ok(review.show(&my_fields))
+}
+
+pub fn ui_display_tx(outputs: &[TxOutput], fees: u64) -> Result<bool, AppSW> {
+    let fees_str = format_zec_amount(fees);
+
+    // Build name and value strings
+    let mut name_strs = Vec::new();
+    let mut value_strs = Vec::new();
+
+    for (idx, output) in outputs.iter().enumerate() {
+        // Make it 1-based for display
+        let idx = idx + 1;
+        name_strs.push(if output.is_change {
+            (
+                format!("Change output #{idx} amount"),
+                format!("Change output #{idx} address"),
+            )
+        } else {
+            (
+                format!("Output #{idx} amount"),
+                format!("Output #{idx} address"),
+            )
+        });
+
+        value_strs.push(format_zec_amount(output.amount));
+    }
+
+    // Define transaction review fields
+    let mut my_fields = Vec::new();
+
+    for (idx, output) in outputs.iter().enumerate() {
+        my_fields.push(Field {
+            name: name_strs[idx].0.as_str(),
+            value: value_strs[idx].as_str(),
+        });
+        my_fields.push(Field {
+            name: name_strs[idx].1.as_str(),
+            value: &output.address,
+        });
+    }
+
+    my_fields.push(Field {
+        name: "Fees",
+        value: fees_str.as_str(),
+    });
+
+    // Create NBGL review. Maximum number of fields and string buffer length can be customized
+    // with constant generic parameters of NbglReview. Default values are 32 and 1024 respectively.
+    let review: NbglReview = NbglReview::new()
+        .titles("Review transaction", "", "Sign transaction")
         .glyph(load_glyph());
 
     Ok(review.show(&my_fields))

@@ -15,7 +15,7 @@
  *  limitations under the License.
  *****************************************************************************/
 
-use crate::{AppSW, app_ui::load_glyph};
+use crate::{app_ui::load_glyph, AppSW};
 
 use include_gif::include_gif;
 use ledger_device_sdk::nbgl::{NbglAddressReview, NbglGlyph};

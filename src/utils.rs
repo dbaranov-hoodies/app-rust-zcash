@@ -291,6 +291,7 @@ pub fn output_script_is_p2sh(script_pubkey: &[u8]) -> bool {
     true
 }
 
+#[derive(PartialEq, Debug)]
 pub enum CheckDispOutput {
     None,
     Displayable,

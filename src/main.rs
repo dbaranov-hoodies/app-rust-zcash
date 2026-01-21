@@ -186,7 +186,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
-        (Instruction::HashInputStart { .. }, AppSW::Deny | AppSW::Ok)
+        (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok)
             if tx_ctx.review_finished() =>
         {
             (true, StatusType::Transaction)

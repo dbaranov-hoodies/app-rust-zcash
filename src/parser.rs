@@ -1,3 +1,4 @@
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::{cmp, iter, mem};
 use ledger_device_sdk::hmac::HMACError;
@@ -23,9 +24,9 @@ use zcash_protocol::value::{BalanceError, Zatoshis};
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
-use crate::app_ui::sign::ui_display_tx_output;
-use crate::consts::{MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
-use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxSigningState};
+use crate::app_ui::sign::ui_display_tx;
+use crate::consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
+use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxOutput, TxSigningState};
 use crate::log::{debug, error, info};
 use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
@@ -1008,6 +1009,11 @@ impl OutputParser {
                 OutputParseState::ParsingNumberOfOutputs => {
                     let output_count: usize = ok!(CompactSize::read_t(&mut reader));
                     info!("Output count: {}", output_count);
+
+                    if output_count > MAX_OUTPUTS_NUMBER {
+                        return Err(ParserError::from_str("Too many outputs"));
+                    }
+
                     self.output_count = output_count;
                     self.state = OutputParseState::ParsingOutput;
                 }
@@ -1071,38 +1077,27 @@ impl OutputParser {
                         self.current_output_amount,
                         &ctx.tx_info.change_address,
                     ) {
-                        CheckDispOutput::Change => {
-                            if ctx.tx_info.is_change_found {
+                        output @ (CheckDispOutput::Change | CheckDispOutput::Displayable) => {
+                            let is_change = output == CheckDispOutput::Change;
+
+                            if is_change && ctx.tx_info.is_change_found {
                                 error!("Multiple change outputs detected");
                                 return Err(ParserError::from_str(
                                     "Multiple change outputs detected",
                                 ));
                             }
+
                             let address =
                                 ok!(get_address_from_output_script(&self.current_output_script));
 
-                            if !ok!(ui_display_tx_output(
-                                self.output_parsed_count,
-                                self.current_output_amount,
-                                &address,
-                                true,
-                            )) {
-                                return Err(ParserError::user());
-                            }
+                            ctx.tx_info.outputs.push(TxOutput {
+                                amount: self.current_output_amount,
+                                address: String::from(address.as_str()), // FIXME: use dynamic strings
+                                is_change,
+                            });
 
-                            ctx.tx_info.is_change_found = true;
-                        }
-                        CheckDispOutput::Displayable => {
-                            let address =
-                                ok!(get_address_from_output_script(&self.current_output_script));
-
-                            if !ok!(ui_display_tx_output(
-                                self.output_parsed_count,
-                                self.current_output_amount,
-                                &address,
-                                false,
-                            )) {
-                                return Err(ParserError::user());
+                            if is_change {
+                                ctx.tx_info.is_change_found = true;
                             }
                         }
                         _ => (),
@@ -1112,6 +1107,18 @@ impl OutputParser {
 
                     if self.output_count == self.output_parsed_count {
                         info!("All outputs parsed");
+
+                        let fees = ok!(ctx
+                            .tx_info
+                            .total_amount
+                            .checked_sub(self.total_output_amount)
+                            .ok_or(AppSW::IncorrectData)
+                            .inspect_err(|_| error!("Failed to calculate fees")));
+
+                        if !ok!(ui_display_tx(&ctx.tx_info.outputs, fees)) {
+                            return Err(ParserError::user());
+                        }
+
                         self.state = OutputParseState::OutputProcessingDone;
                     } else {
                         self.state = OutputParseState::ParsingOutput;
