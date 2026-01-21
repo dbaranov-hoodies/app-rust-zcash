@@ -6,7 +6,7 @@ from struct import pack
 from ragger.backend.interface import BackendInterface, RAPDU
 from ragger.bip import pack_derivation_path
 
-from application_client.zcash_transaction import split_tx_to_chunks_v5
+from application_client.zcash_transaction import split_tx_to_chunks_v5, split_tx_v5_for_hash_input
 
 MAGIC_TRUSTED_INPUT: int = 0x32
 
@@ -17,21 +17,27 @@ CLA: int = 0xE0
 class P1(IntEnum):
     # Parameter 1 for first APDU number.
     P1_START = 0x00
-    # Parameter 2 for more APDU to receive.
-    P1_MORE = 0x80
     # Parameter 1 for screen confirmation for GET_PUBLIC_KEY.
     P1_CONFIRM = 0x01
+    # Parameter 2 for more APDU to receive.
+    P1_MORE = 0x80
+    # Parameter 1 for change information
+    P1_CHANGE_INFO = 0xFF
 
 class P2(IntEnum):
     # Parameter 2 default value
     P2_NONE = 0x00
+    P2_TRUSTED_INPUT_SAPLING = 0x05
+    P2_CONTINUE_HASHING = 0x80
 
 class InsType(IntEnum):
     GET_VERSION    = 0x03
     GET_APP_NAME   = 0x04
     GET_WALLET_PUBLIC_KEY = 0x40
     GET_TRUSTED_INPUT     = 0x42
-    SIGN_TX        = 0x06
+    HASH_INPUT_START = 0x44
+    HASH_INPUT_FINALIZE_FULL = 0x4A
+    HASH_SIGN        = 0x48
 
 class Errors(IntEnum):
     SW_DENY                    = 0x6985
@@ -57,7 +63,8 @@ def split_message(message: bytes, max_size: int) -> List[bytes]:
 class ZcashCommandSender:
     def __init__(self, backend: BackendInterface) -> None:
         self.backend = backend
-
+        self.tx_chunks = None
+        self.trusted_inputs = []
 
     def exchange_raw(self, data: str) -> (int, bytes):
         data = bytes.fromhex(data)
@@ -136,30 +143,104 @@ class ZcashCommandSender:
                                             data=chunks[-1]) as response:
             yield response
 
-    @contextmanager
-    def sign_tx(self, path: str, transaction: bytes) -> Generator[None, None, None]:
-        self.backend.exchange(cla=CLA,
-                              ins=InsType.SIGN_TX,
-                              p1=P1.P1_START,
-                              p2=P2.P2_NONE,
-                              data=pack_derivation_path(path))
-        messages = split_message(transaction, MAX_APDU_LEN)
-        idx: int = P1.P1_START + 1
+    def _send_trusted_inputs_and_header(self, continue_hashing: bool):
+        header = self.tx_chunks["header"]
+        inputs = self.tx_chunks["inputs"]
+        inputs_num = len(inputs)
 
-        for msg in messages[:-1]:
+        # Send header chunk
+        self.backend.exchange(cla=CLA,
+                              ins=InsType.HASH_INPUT_START,
+                              p1=P1.P1_START,
+                              p2=P2.P2_CONTINUE_HASHING if continue_hashing else P2.P2_TRUSTED_INPUT_SAPLING,
+                              data=header + inputs_num.to_bytes(1)
+        )
+
+        # Send trusted inputs chunks
+        for idx, inp in enumerate(inputs):
+            flag = 0x01
+            trusted_input_data = self.trusted_inputs[idx]
+            trusted_input_len = len(trusted_input_data)
+            script = inp["script"]
+            script_len = len(script)
+            sequence = inp["sequence"]
+
             self.backend.exchange(cla=CLA,
-                                  ins=InsType.SIGN_TX,
-                                  p1=idx,
-                                  p2=P2.P2_NONE,
-                                  data=msg)
-            idx += 1
+                                ins=InsType.HASH_INPUT_START,
+                                p1=P1.P1_MORE,
+                                p2=P2.P2_TRUSTED_INPUT_SAPLING,
+                                data=flag.to_bytes(1) + trusted_input_len.to_bytes(1) + trusted_input_data + script_len.to_bytes(1)
+            )
+
+            self.backend.exchange(cla=CLA,
+                                ins=InsType.HASH_INPUT_START,
+                                p1=P1.P1_MORE,
+                                p2=P2.P2_TRUSTED_INPUT_SAPLING,
+                                data=script + sequence
+            )
+
+
+    @contextmanager
+    def hash_input(self, transaction: bytes, trusted_inputs: list[bytes], change_path: str | None = None) -> Generator[None, None, None]:
+        self.tx_chunks = split_tx_v5_for_hash_input(transaction)
+        self.trusted_inputs = trusted_inputs
+
+        self._send_trusted_inputs_and_header(continue_hashing=False)
+
+        # Send outputs chunks
+        outputs = self.tx_chunks["outputs"]
+        outputs_num = len(outputs)
+        outputs_num_bytes = outputs_num.to_bytes(1)
+
+        if change_path:
+            self.backend.exchange(cla=CLA,
+                                ins=InsType.HASH_INPUT_FINALIZE_FULL,
+                                p1=P1.P1_CHANGE_INFO,
+                                p2=P2.P2_NONE,
+                                data=pack_derivation_path(change_path)
+            )
+
+
+        for out in outputs[:-1]:
+            value = out["value"]
+            script = out["script"]
+            script_len = len(script)
+
+            self.backend.exchange(cla=CLA,
+                                ins=InsType.HASH_INPUT_FINALIZE_FULL,
+                                p1=P1.P1_MORE,
+                                p2=P2.P2_NONE,
+                                data=outputs_num_bytes + value + script_len.to_bytes(1) + script
+            )
+
+            outputs_num_bytes = b""
+
+        value = outputs[-1]["value"]
+        script = outputs[-1]["script"]
+        script_len = len(script)
 
         with self.backend.exchange_async(cla=CLA,
-                                         ins=InsType.SIGN_TX,
-                                         p1=idx,
-                                         p2=P2.P2_NONE,
-                                         data=messages[-1]) as response:
+                                        ins=InsType.HASH_INPUT_FINALIZE_FULL,
+                                        p1=P1.P1_MORE,
+                                        p2=P2.P2_NONE,
+                                        data=outputs_num_bytes + value + script_len.to_bytes(1) + script) as response:
             yield response
+
+    def hash_sign(self, path: str, locktime: int, expiry: int, sighash_type: int = 0x01) -> RAPDU:
+        # Send extra header data
+        self.backend.exchange(cla=CLA,
+                                ins=InsType.HASH_SIGN,
+                                p1=P1.P1_START,
+                                p2=P2.P2_NONE,
+                                data=0x00.to_bytes(2) + locktime.to_bytes(4) + sighash_type.to_bytes(1) + expiry.to_bytes(4))
+
+        self._send_trusted_inputs_and_header(continue_hashing=True)
+
+        return self.backend.exchange(cla=CLA,
+                                     ins=InsType.HASH_SIGN,
+                                     p1=P1.P1_START,
+                                     p2=P2.P2_NONE,
+                                     data=pack_derivation_path(path) + 0x00.to_bytes(1) + locktime.to_bytes(4) + sighash_type.to_bytes(1) + expiry.to_bytes(4))
 
     def get_async_response(self) -> Optional[RAPDU]:
         return self.backend.last_async_response
