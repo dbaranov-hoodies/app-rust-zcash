@@ -141,19 +141,22 @@ const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
 // T-address P2PKH prefix (testnet)
 const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
 
-pub struct PubKey(pub [u8; 20]);
-
 pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
     public_key: &[u8],
+    is_hashed: bool,
 ) -> Result<ArrayString<MAX_OUT_SIZE>, AppSW> {
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key
-    debug!("To hash: {:02X?}", &public_key);
-    let pubkey_hash160 = public_key_hash160(public_key)?;
-    buf[0] = P2PKH_PREFIX[0];
-    buf[1] = P2PKH_PREFIX[1];
-    buf[2..22].copy_from_slice(&pubkey_hash160);
+    if is_hashed {
+        buf[0..22].copy_from_slice(&public_key[0..22]);
+    } else {
+        debug!("To hash: {:02X?}", &public_key);
+        let pubkey_hash160 = public_key_hash160(public_key)?;
+        buf[0] = P2PKH_PREFIX[0];
+        buf[1] = P2PKH_PREFIX[1];
+        buf[2..22].copy_from_slice(&pubkey_hash160);
+    }
 
     let checksum = compute_cheksum(&buf[0..22]);
     buf[22..26].copy_from_slice(&checksum);
@@ -223,12 +226,6 @@ pub fn secure_memcmp(buf1: &[u8], buf2: &[u8]) -> bool {
     error == 0
 }
 
-/*
-unsigned char btchip_output_script_is_op_return(unsigned char *buffer) {
-    return (buffer[1] == 0x6A);
-}
- */
-
 pub fn output_script_is_op_return(script_pubkey: &[u8]) -> bool {
     if script_pubkey.len() < 2 {
         return false;
@@ -237,18 +234,35 @@ pub fn output_script_is_op_return(script_pubkey: &[u8]) -> bool {
     script_pubkey[1] == 0x6A
 }
 
-/*
-unsigned char btchip_output_script_is_p2sh(unsigned char *buffer) {
-    if ((memcmp(buffer, TRANSACTION_OUTPUT_SCRIPT_P2SH_PRE,
-                    sizeof(TRANSACTION_OUTPUT_SCRIPT_P2SH_PRE)) == 0) &&
-            (memcmp(buffer + sizeof(TRANSACTION_OUTPUT_SCRIPT_P2SH_PRE) + 20,
-                       TRANSACTION_OUTPUT_SCRIPT_P2SH_POST,
-                       sizeof(TRANSACTION_OUTPUT_SCRIPT_P2SH_POST)) == 0)) {
-        return 1;
+pub fn output_script_is_regular(script_pubkey: &[u8]) -> bool {
+    if script_pubkey.len() != 0x19 {
+        return false;
     }
-    return 0;
+
+    // OP_DUP, OP_HASH160, address length
+    const REGULAR_PREFIX: [u8; 3] = [0x76, 0xA9, 0x14];
+    // OP_EQUALVERIFY, OP_CHECKSIG
+    const REGULAR_POSTFIX: [u8; 2] = [0x88, 0xAC];
+
+    if script_pubkey.len() < 25 {
+        return false;
+    }
+
+    if script_pubkey[0] != REGULAR_PREFIX[0]
+        || script_pubkey[1] != REGULAR_PREFIX[1]
+        || script_pubkey[2] != REGULAR_PREFIX[2]
+    {
+        return false;
+    }
+
+    if script_pubkey[script_pubkey.len() - 2] != REGULAR_POSTFIX[0]
+        || script_pubkey[script_pubkey.len() - 1] != REGULAR_POSTFIX[1]
+    {
+        return false;
+    }
+
+    true
 }
-*/
 
 pub fn output_script_is_p2sh(script_pubkey: &[u8]) -> bool {
     if script_pubkey.is_empty() {
@@ -277,153 +291,78 @@ pub fn output_script_is_p2sh(script_pubkey: &[u8]) -> bool {
     true
 }
 
-// Seems not supported
-pub fn output_script_is_native_witness(_script_pubkey: &[u8]) -> bool {
-    false
+pub enum CheckDispOutput {
+    None,
+    Displayable,
+    Change,
 }
-
-/*
-struct btchip_tmp_output_s {
-    /** Change address if initialized */
-    unsigned char changeAddress[20];
-    /** Flag set if the change address was initialized */
-    unsigned char changeInitialized;
-    /** Flag set if the change address was checked */
-    unsigned char changeChecked;
-    /** Flag set if the change address can be submitted */
-    unsigned char changeAccepted;
-    /** Flag set if the outputs have been fragmented */
-    unsigned char multipleOutput;
-};
- */
-
-#[derive(Default)]
-pub struct ChangeOutputChecker {
-    pub change_address: [u8; 20],
-    pub change_initialized: bool,
-    pub change_checked: bool,
-    pub change_accepted: bool,
-    pub multiple_output: bool,
-}
-
-/*
-static bool check_output_displayable() {
-    bool displayable = true;
-    unsigned char amount[8], isOpReturn, isP2sh, isNativeSegwit, j,
-        nullAmount = 1;
-
-    for (j = 0; j < 8; j++) {
-        if (btchip_context_D.currentOutput[j] != 0) {
-            nullAmount = 0;
-            break;
-        }
-    }
-    if (!nullAmount) {
-        btchip_swap_bytes(amount, btchip_context_D.currentOutput, 8);
-        transaction_amount_add_be(btchip_context_D.totalOutputAmount,
-                                  btchip_context_D.totalOutputAmount, amount);
-    }
-    isOpReturn =
-        btchip_output_script_is_op_return(btchip_context_D.currentOutput + 8);
-    isP2sh = btchip_output_script_is_p2sh(btchip_context_D.currentOutput + 8);
-    isNativeSegwit = btchip_output_script_is_native_witness(
-        btchip_context_D.currentOutput + 8);
-    if (btchip_context_D.tmpCtx.output.changeInitialized && !isOpReturn) {
-        bool changeFound = false;
-        unsigned char addressOffset =
-            (isNativeSegwit ? OUTPUT_SCRIPT_NATIVE_WITNESS_PROGRAM_OFFSET
-                            : isP2sh ? OUTPUT_SCRIPT_P2SH_PRE_LENGTH
-                                     : OUTPUT_SCRIPT_REGULAR_PRE_LENGTH);
-        if (!isP2sh &&
-            memcmp(btchip_context_D.currentOutput + 8 + addressOffset,
-                      btchip_context_D.tmpCtx.output.changeAddress,
-                      20) == 0) {
-            changeFound = true;
-        } else if (isP2sh && btchip_context_D.usingSegwit) {
-            unsigned char changeSegwit[22];
-            changeSegwit[0] = 0x00;
-            changeSegwit[1] = 0x14;
-            memmove(changeSegwit + 2,
-                       btchip_context_D.tmpCtx.output.changeAddress, 20);
-            btchip_public_key_hash160(changeSegwit, 22, changeSegwit);
-            if (memcmp(btchip_context_D.currentOutput + 8 + addressOffset,
-                          changeSegwit, 20) == 0) {
-                // Attempt to avoid fatal failures on Bitcoin Cash
-                PRINTF("Error : Non spendable Segwit change");
-                THROW(EXCEPTION);
-            }
-        }
-        if (changeFound) {
-            if (btchip_context_D.changeOutputFound) {
-                PRINTF("Error : Multiple change output found");
-                THROW(EXCEPTION);
-            }
-            btchip_context_D.changeOutputFound = true;
-            displayable = false;
-        }
-    }
-
-    return displayable;
-}
- */
 
 pub fn check_output_displayable(
-    change_checker: &ChangeOutputChecker,
     script_pubkey: &[u8],
     amount: u64,
-) -> bool {
-    info!("Check output displayable");
+    change_address: &[u8; 20],
+) -> CheckDispOutput {
+    const ADDRESS_OFFSET: usize = 3;
+
+    debug!("Check output displayable");
+    debug!("ScriptPubKey: {:02X?}", script_pubkey);
 
     if script_pubkey.is_empty() {
-        return false;
+        return CheckDispOutput::None;
     }
 
     if amount == 0 {
-        return false;
+        return CheckDispOutput::None;
     }
 
-    let is_op_return = output_script_is_op_return(script_pubkey);
-    let is_p2sh = output_script_is_p2sh(script_pubkey);
-    let is_native_segwit = output_script_is_native_witness(script_pubkey);
-
-    if change_checker.change_initialized && !is_op_return {
-        let address_offset = if is_native_segwit {
-            2 // OUTPUT_SCRIPT_NATIVE_WITNESS_PROGRAM_OFFSET
-        } else if is_p2sh {
-            3 // OUTPUT_SCRIPT_P2SH_PRE_LENGTH
-        } else {
-            5 // OUTPUT_SCRIPT_REGULAR_PRE_LENGTH
-        };
-
-        let script_len = script_pubkey.len();
-        if script_len < address_offset + 20 {
-            return false;
-        }
-
-        let address_start = address_offset;
-        let address_end = address_offset + 20;
-
-        if !is_p2sh {
-            if script_pubkey[address_start..address_end] == change_checker.change_address[..] {
-                return false;
-            }
-        } else if is_p2sh {
-            let mut change_segwit = [0u8; 22];
-            change_segwit[0] = 0x00;
-            change_segwit[1] = 0x14;
-            change_segwit[2..22].copy_from_slice(&change_checker.change_address[..]);
-
-            let pubkey_hash160 = public_key_hash160(&change_segwit).expect("hash160 cannot fail");
-
-            if script_pubkey[address_start..address_end] == pubkey_hash160[..] {
-                // Attempt to avoid fatal failures on Bitcoin Cash
-                error!("Error : Non spendable Segwit change");
-                return false;
-            }
-        }
+    if output_script_is_op_return(script_pubkey) || output_script_is_p2sh(script_pubkey) {
+        return CheckDispOutput::None;
     }
 
-    true
+    let script_len = script_pubkey.len();
+    if script_len < ADDRESS_OFFSET + 20 {
+        return CheckDispOutput::None;
+    }
+
+    if &script_pubkey[ADDRESS_OFFSET..][..20] == change_address {
+        debug!("Change output detected");
+        return CheckDispOutput::Change;
+    }
+
+    debug!("Displayable output detected");
+    CheckDispOutput::Displayable
+}
+
+pub fn get_address_from_output_script(script: &[u8]) -> Result<ArrayString<150>, AppSW> {
+    const COIN_P2PKH_VERSION: u16 = 7352;
+    const ADDRESS_OFFSET: usize = 3;
+    const VERSION_SIZE: usize = 2;
+    const ADDRESS_SIZE: usize = 22;
+
+    if script.len() != 0x19 {
+        error!("Bad script length");
+        return Err(AppSW::IncorrectData);
+    }
+
+    if output_script_is_op_return(script) {
+        error!("Unsupported OP_RETURN script");
+        return Err(AppSW::IncorrectData);
+    }
+
+    if !output_script_is_regular(script) {
+        error!("Unsupported script type");
+        return Err(AppSW::IncorrectData);
+    }
+
+    let mut address = [0u8; ADDRESS_SIZE];
+    let version = COIN_P2PKH_VERSION.to_be_bytes();
+
+    address[..VERSION_SIZE].copy_from_slice(&version);
+    address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
+
+    let address_base58 = public_key_to_address_base58::<150>(&address, true)?;
+
+    Ok(address_base58)
 }
 
 pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {

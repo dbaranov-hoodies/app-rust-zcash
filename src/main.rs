@@ -18,11 +18,8 @@
 #![no_std]
 #![no_main]
 
-mod app_ui {
-    pub mod address;
-    pub mod menu;
-    pub mod sign;
-}
+mod app_ui;
+
 mod handlers {
     pub mod get_public_key;
     pub mod get_trusted_input;

@@ -23,12 +23,17 @@ use zcash_protocol::value::{BalanceError, Zatoshis};
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
+use crate::app_ui::sign::ui_display_tx_output;
 use crate::consts::{MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
 use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxSigningState};
 use crate::log::{debug, error, info};
 use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
-use crate::utils::{check_output_displayable, secure_memcmp, HexSlice};
+use crate::utils::{
+    check_output_displayable, get_address_from_output_script, secure_memcmp, CheckDispOutput,
+    HexSlice,
+};
+use crate::AppSW;
 
 // TODO: use personalization consts from protocol libraries
 const ZCASH_SAPLING_HASH_PERSONALIZATION: &[u8] = b"ZTxIdSaplingHash";
@@ -42,6 +47,8 @@ pub enum ParserSourceError {
     Hmac(HMACError),
     Balance(BalanceError),
     Custom(&'static str),
+    AppSW(AppSW),
+    UserDenied,
 }
 
 impl From<IoError> for ParserSourceError {
@@ -74,6 +81,12 @@ impl From<&'static str> for ParserSourceError {
     }
 }
 
+impl From<AppSW> for ParserSourceError {
+    fn from(e: AppSW) -> Self {
+        ParserSourceError::AppSW(e)
+    }
+}
+
 #[derive(Debug)]
 pub struct ParserError {
     pub source: ParserSourceError,
@@ -88,6 +101,15 @@ impl ParserError {
     pub fn from_str(reason: &'static str) -> ParserError {
         ParserError {
             source: reason.into(),
+            file: file!(),
+            line: line!(),
+        }
+    }
+
+    #[track_caller]
+    pub fn user() -> ParserError {
+        ParserError {
+            source: ParserSourceError::UserDenied,
             file: file!(),
             line: line!(),
         }
@@ -934,6 +956,11 @@ impl Parser {
     }
 }
 
+pub struct OutputParserCtx<'ctx> {
+    pub tx_info: &'ctx mut TxInfo,
+    pub hashers: &'ctx mut Hashers,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum OutputParseState {
     ParsingNumberOfOutputs,
@@ -943,25 +970,23 @@ enum OutputParseState {
 }
 
 pub struct OutputParser {
-    output_count: usize,
-    totoal_output_amount: u64,
     state: OutputParseState,
-    pub output_parsed_count: usize,
-    pub current_output_script: Vec<u8>,
-    pub current_output_value: u64,
-    pub current_is_displayable: bool,
+    output_count: usize,
+    pub total_output_amount: u64,
+    output_parsed_count: usize,
+    current_output_script: Vec<u8>,
+    current_output_amount: u64,
 }
 
 impl OutputParser {
     pub fn new() -> Self {
         OutputParser {
+            state: OutputParseState::ParsingNumberOfOutputs,
             output_count: 0,
             output_parsed_count: 0,
-            totoal_output_amount: 0,
-            state: OutputParseState::ParsingNumberOfOutputs,
+            total_output_amount: 0,
             current_output_script: Vec::new(),
-            current_output_value: 0,
-            current_is_displayable: false,
+            current_output_amount: 0,
         }
     }
 
@@ -973,7 +998,7 @@ impl OutputParser {
         self.state != OutputParseState::ParsingNumberOfOutputs
     }
 
-    pub fn parse(&mut self, data: &[u8]) -> Result<(), ParserError> {
+    pub fn parse(&mut self, ctx: &mut OutputParserCtx<'_>, data: &[u8]) -> Result<(), ParserError> {
         let mut reader = ByteReader::new(data);
 
         while reader.remaining_bytes() > 0 {
@@ -987,9 +1012,6 @@ impl OutputParser {
                     self.state = OutputParseState::ParsingOutput;
                 }
                 OutputParseState::ParsingOutput => {
-                    // Reset flags for the new output
-                    self.current_is_displayable = false;
-
                     let value = ok!({
                         let mut tmp = [0u8; 8];
                         ok!(reader.read_exact(&mut tmp));
@@ -997,10 +1019,10 @@ impl OutputParser {
                     });
 
                     info!("Output value: {:?}", value);
-                    self.current_output_value = value.into_u64();
-                    self.totoal_output_amount = self
-                        .totoal_output_amount
-                        .saturating_add(self.current_output_value);
+                    self.current_output_amount = value.into_u64();
+                    self.total_output_amount = self
+                        .total_output_amount
+                        .saturating_add(self.current_output_amount);
 
                     let script_size: usize = ok!(CompactSize::read_t(&mut reader));
 
@@ -1044,11 +1066,48 @@ impl OutputParser {
                         continue;
                     }
 
-                    self.current_is_displayable = check_output_displayable(
-                        &Default::default(),
+                    match check_output_displayable(
                         &self.current_output_script,
-                        self.current_output_value,
-                    );
+                        self.current_output_amount,
+                        &ctx.tx_info.change_address,
+                    ) {
+                        CheckDispOutput::Change => {
+                            if ctx.tx_info.is_change_found {
+                                error!("Multiple change outputs detected");
+                                return Err(ParserError::from_str(
+                                    "Multiple change outputs detected",
+                                ));
+                            }
+                            let address =
+                                ok!(get_address_from_output_script(&self.current_output_script));
+
+                            if !ok!(ui_display_tx_output(
+                                self.output_parsed_count,
+                                self.current_output_amount,
+                                &address,
+                                true,
+                            )) {
+                                return Err(ParserError::user());
+                            }
+
+                            ctx.tx_info.is_change_found = true;
+                        }
+                        CheckDispOutput::Displayable => {
+                            let address =
+                                ok!(get_address_from_output_script(&self.current_output_script));
+
+                            if !ok!(ui_display_tx_output(
+                                self.output_parsed_count,
+                                self.current_output_amount,
+                                &address,
+                                false,
+                            )) {
+                                return Err(ParserError::user());
+                            }
+                        }
+                        _ => (),
+                    }
+
                     self.output_parsed_count = self.output_parsed_count.saturating_add(1);
 
                     if self.output_count == self.output_parsed_count {

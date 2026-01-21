@@ -14,13 +14,13 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::app_ui::sign::ui_display_tx_output;
+use crate::app_ui::sign::{ui_display_tx_fees};
 use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::blake2b_256_pers::Blake2b256Personalization;
 use crate::utils::{
-    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160,
-    public_key_to_address_base58, Bip32Path, HexSlice, PubKeyWithCC,
+    check_bip44_compliance, compress_public_key, derive_public_key, get_address_from_output_script,
+    public_key_hash160, public_key_to_address_base58, Bip32Path, HexSlice, PubKeyWithCC,
 };
 use crate::AppSW;
 use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
@@ -261,13 +261,11 @@ fn handler_hash_input_finalize_full_internal(
 
         // FIMXE: move to output parser
         if !ctx.output_parser.is_started() {
-            info!("output hasher reset");
             ctx.hashers
                 .outputs_hasher
                 .init_with_perso(ZCASH_OUTPUTS_HASH_PERSONALIZATION);
         }
 
-        info!("output hasher update {}", HexSlice(&data[hash_offset..]));
         ctx.hashers
             .outputs_hasher
             .update(&data[hash_offset..])
@@ -275,21 +273,38 @@ fn handler_hash_input_finalize_full_internal(
     }
 
     if !ctx.is_all_outputs_validated {
-        ctx.output_parser.parse(data).unwrap();
-        // TODO: proper display
-        if ctx.output_parser.current_is_displayable {
-            //if !ui_display_tx_output(
-            //    ctx.output_parser.output_parsed_count,
-            //    ctx.output_parser.current_output_value,
-            //    "XXXXXXXXXXXXXXXX",
-            //    424242, // TODO fees
-            //    is_change,
-            //)? {
-            //    return Err(AppSW::Deny);
-            //}
-        }
+        ctx.output_parser.parse(
+            &mut crate::parser::OutputParserCtx {
+                tx_info: &mut ctx.tx_info,
+                hashers: &mut ctx.hashers,
+            },
+            data,
+        ).map_err(|e| {
+            error!("Error parsing TX output: {:#?}", e);
+            match e.source {
+                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                ParserSourceError::AppSW(sw) => sw,
+                ParserSourceError::UserDenied => AppSW::Deny,
+                _ => AppSW::IncorrectData,
+            }
+        })?;
 
         if ctx.output_parser.is_finished() {
+            // TODO: move to output parser
+            let fees = ctx
+                .tx_info
+                .total_amount
+                .checked_sub(ctx.output_parser.total_output_amount)
+                .ok_or(AppSW::IncorrectData)
+                .inspect_err(|_| error!("Failed to calculate fees"))?;
+
+            info!("Tx fees: {}", fees);
+            if fees != 0 {
+                if !ui_display_tx_fees(fees)? {
+                    return Err(AppSW::Deny);
+                }
+            }
+
             info!("All outputs parsed");
             ctx.is_all_outputs_validated = true;
         }

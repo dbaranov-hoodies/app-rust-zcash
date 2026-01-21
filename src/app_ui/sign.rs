@@ -14,7 +14,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::AppSW;
+use crate::{AppSW, app_ui::load_glyph};
 
 use alloc::{format, string::String};
 
@@ -28,16 +28,16 @@ fn format_zec_amount(amount: u64) -> String {
     format!("ZEC {}.{:08}", whole, fractional)
 }
 
-/// Displays a transaction and returns true if user approved it.
+/// Displays transaction output and returns true if user approved it.
 pub fn ui_display_tx_output(
     output_number: usize,
     amount: u64,
     address: &str,
-    fees: u64,
     is_change: bool,
 ) -> Result<bool, AppSW> {
     let value_str = format_zec_amount(amount);
-    let fees_str = format_zec_amount(fees);
+    // Make it 1-based for display
+    let output_number = output_number + 1;
 
     // Define transaction review fields
     let my_fields = [
@@ -49,6 +49,32 @@ pub fn ui_display_tx_output(
             name: "Address",
             value: address,
         },
+    ];
+
+    // Create transaction review
+    let title = if is_change {
+        format!("Review change output #{output_number}")
+    } else {
+        format!("Review output #{output_number}")
+    };
+
+    // Create NBGL review. Maximum number of fields and string buffer length can be customised
+    // with constant generic parameters of NbglReview. Default values are 32 and 1024 respectively.
+    let review: NbglReview = NbglReview::new()
+        .titles(&title, "", "Accept")
+        .glyph(load_glyph());
+
+    Ok(review.show(&my_fields))
+}
+
+/// Displays transaction fees and returns true if user approved it.
+pub fn ui_display_tx_fees(
+    fees: u64,
+) -> Result<bool, AppSW> {
+    let fees_str = format_zec_amount(fees);
+
+    // Define transaction review fields
+    let my_fields = [
         Field {
             name: "Fees",
             value: fees_str.as_str(),
@@ -56,22 +82,13 @@ pub fn ui_display_tx_output(
     ];
 
     // Create transaction review
-
-    // Load glyph from file with include_gif macro. Creates an NBGL compatible glyph.
-    #[cfg(target_os = "apex_p")]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/crab_48x48.png", NBGL));
-    #[cfg(any(target_os = "stax", target_os = "flex"))]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/crab_64x64.gif", NBGL));
-    #[cfg(any(target_os = "nanosplus", target_os = "nanox"))]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("icons/crab_14x14.gif", NBGL));
-
-    let title = format!("Review output #{output_number}");
+    let title = format!("Confirm transaction");
 
     // Create NBGL review. Maximum number of fields and string buffer length can be customised
     // with constant generic parameters of NbglReview. Default values are 32 and 1024 respectively.
     let review: NbglReview = NbglReview::new()
-        .titles(&title, "", "Confirm transaction")
-        .glyph(&FERRIS);
+        .titles(&title, "", "Accept and send")
+        .glyph(load_glyph());
 
     Ok(review.show(&my_fields))
 }
