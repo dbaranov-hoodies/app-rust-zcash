@@ -1,6 +1,4 @@
-use alloc::vec::Vec;
-use arrayvec::ArrayString;
-use bs58::encode::EncodeTarget;
+use alloc::{string::String, vec::Vec};
 
 use crate::{
     log::{debug, error},
@@ -8,22 +6,6 @@ use crate::{
 };
 
 pub mod blake2b_256_pers;
-
-// Buffer for bs58 encoding output
-struct OutBuf<'b, const N: usize> {
-    out: &'b mut [u8; N],
-}
-
-impl<const N: usize> EncodeTarget for OutBuf<'_, N> {
-    fn encode_with(
-        &mut self,
-        max_len: usize,
-        f: impl for<'a> FnOnce(&'a mut [u8]) -> bs58::encode::Result<usize>,
-    ) -> bs58::encode::Result<usize> {
-        let len = f(&mut self.out[..max_len])?;
-        Ok(len)
-    }
-}
 
 /// BIP32 path stored as an array of [`u32`].
 #[derive(Default)]
@@ -141,10 +123,7 @@ const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
 // T-address P2PKH prefix (testnet)
 const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
 
-pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
-    public_key: &[u8],
-    is_hashed: bool,
-) -> Result<ArrayString<MAX_OUT_SIZE>, AppSW> {
+pub fn public_key_to_address_base58(public_key: &[u8], is_hashed: bool) -> Result<String, AppSW> {
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key
@@ -161,17 +140,13 @@ pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
     let checksum = compute_cheksum(&buf[0..22]);
     buf[22..26].copy_from_slice(&checksum);
 
-    let mut out_buf = [0u8; MAX_OUT_SIZE];
-    let out_len = bs58::encode(&buf[..26])
-        .onto(OutBuf { out: &mut out_buf })
+    let mut address_base58 = String::new();
+    let _ = bs58::encode(&buf[..26])
+        .onto(&mut address_base58)
         .map_err(|_| {
             error!("Base58 encoding failed");
             AppSW::IncorrectData
         })?;
-
-    let mut address_base58 =
-        ArrayString::from_byte_string(&out_buf).expect("bs58 produces valid ASCII");
-    address_base58.truncate(out_len);
 
     debug!("Address Base58: {}", address_base58);
 
@@ -334,7 +309,7 @@ pub fn check_output_displayable(
     CheckDispOutput::Displayable
 }
 
-pub fn get_address_from_output_script(script: &[u8]) -> Result<ArrayString<150>, AppSW> {
+pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
     const COIN_P2PKH_VERSION: u16 = 7352;
     const ADDRESS_OFFSET: usize = 3;
     const VERSION_SIZE: usize = 2;
@@ -361,7 +336,7 @@ pub fn get_address_from_output_script(script: &[u8]) -> Result<ArrayString<150>,
     address[..VERSION_SIZE].copy_from_slice(&version);
     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
 
-    let address_base58 = public_key_to_address_base58::<150>(&address, true)?;
+    let address_base58 = public_key_to_address_base58(&address, true)?;
 
     Ok(address_base58)
 }

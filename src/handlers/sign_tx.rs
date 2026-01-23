@@ -16,7 +16,6 @@
  *****************************************************************************/
 use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
-use crate::utils::blake2b_256_pers::Blake2b256Personalization;
 use crate::utils::{
     check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160, Bip32Path,
     HexSlice, PubKeyWithCC,
@@ -30,7 +29,6 @@ use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
-use zcash_primitives::transaction::txid::ZCASH_OUTPUTS_HASH_PERSONALIZATION;
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
 
@@ -95,8 +93,7 @@ pub struct TxSigningState {
 pub struct TxContext {
     review_finished: bool,
 
-    pub is_all_outputs_validated: bool,
-    pub is_ready_to_sign: bool,
+    pub is_extra_header_data_set: bool,
     pub tx_signing_state: TxSigningState,
 
     pub tx_info: TxInfo,
@@ -117,8 +114,7 @@ impl TxContext {
             trusted_input_info: Default::default(),
             hashers: Default::default(),
 
-            is_all_outputs_validated: false,
-            is_ready_to_sign: false,
+            is_extra_header_data_set: false,
             tx_signing_state: Default::default(),
 
             home: Default::default(),
@@ -177,7 +173,7 @@ pub fn handler_hash_input_start(
 pub fn handler_hash_input_finalize_full(
     comm: &mut Comm,
     ctx: &mut TxContext,
-    is_change: bool,
+    is_change_info: bool,
 ) -> Result<(), AppSW> {
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
@@ -185,35 +181,13 @@ pub fn handler_hash_input_finalize_full(
         return Err(AppSW::WrongApduLength);
     }
 
-    let mut hash_offset = 0;
-
-    // TODO: FIXME: move to output parser
-    // Skip number of outputs on parsing start
-    if !ctx.output_parser.is_started() {
-        let frist_byte = data[0];
-
-        if frist_byte < 0xfd {
-            hash_offset = 1;
-        } else if frist_byte == 0xfd {
-            hash_offset = 3;
-        } else if frist_byte == 0xfe {
-            hash_offset = 5;
-        }
-    }
-
-    // Check parser state
-    if !ctx.parser.is_presign_ready() {
-        error!("Parser not ready for finalize full");
+    // Check processing states
+    if !ctx.parser.is_presign_ready() || ctx.output_parser.is_finished() {
+        error!("Bad processing state");
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
-    if is_change {
-        if ctx.is_all_outputs_validated {
-            // Already validated, should be prevented on the client side
-            error!("All outputs already validated");
-            return Err(AppSW::ConditionsOfUseNotSatisfied);
-        }
-
+    if is_change_info {
         let path: Bip32Path = data.try_into()?;
 
         let PubKeyWithCC {
@@ -236,63 +210,28 @@ pub fn handler_hash_input_finalize_full(
         return Ok(());
     }
 
-    if !ctx.tx_signing_state.segwit_parsed_once {
-        if data.len() < hash_offset {
-            error!("Not enough data for hash offset");
-            return Err(AppSW::WrongApduLength);
-        }
+    ctx.output_parser
+        .parse(
+            &mut crate::parser::OutputParserCtx {
+                tx_info: &mut ctx.tx_info,
+                hashers: &mut ctx.hashers,
+            },
+            data,
+        )
+        .map_err(|e| {
+            error!("Error parsing TX output: {:#?}", e);
+            match e.source {
+                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                ParserSourceError::AppSW(sw) => sw,
+                ParserSourceError::UserDenied => AppSW::Deny,
+                _ => AppSW::IncorrectData,
+            }
+        })?;
 
-        // FIMXE: move to output parser
-        if !ctx.output_parser.is_started() {
-            ctx.hashers
-                .outputs_hasher
-                .init_with_perso(ZCASH_OUTPUTS_HASH_PERSONALIZATION);
-        }
-
-        ctx.hashers
-            .outputs_hasher
-            .update(&data[hash_offset..])
-            .map_err(|_| AppSW::TechnicalProblem)?;
-    }
-
-    if !ctx.is_all_outputs_validated {
-        ctx.output_parser
-            .parse(
-                &mut crate::parser::OutputParserCtx {
-                    tx_info: &mut ctx.tx_info,
-                    _hashers: &mut ctx.hashers,
-                },
-                data,
-            )
-            .map_err(|e| {
-                error!("Error parsing TX output: {:#?}", e);
-                match e.source {
-                    ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
-                    ParserSourceError::AppSW(sw) => sw,
-                    ParserSourceError::UserDenied => AppSW::Deny,
-                    _ => AppSW::IncorrectData,
-                }
-            })?;
-
-        if ctx.output_parser.is_finished() {
-            ctx.review_finished = true;
-            info!("All outputs parsed");
-            ctx.is_all_outputs_validated = true;
-        }
-    }
-
-    if !ctx.tx_signing_state.segwit_parsed_once && ctx.output_parser.is_finished() {
-        ctx.hashers
-            .outputs_hasher
-            .finalize(&mut ctx.tx_info.outputs_hash)
-            .map_err(|_| AppSW::TechnicalProblem)?;
-        info!("Outputs hash: {}", HexSlice(&ctx.tx_info.outputs_hash));
-    }
-
-    #[allow(clippy::collapsible_if)]
-    if ctx.is_all_outputs_validated {
+    if ctx.output_parser.is_finished() {
+        ctx.review_finished = true;
         if !ctx.tx_signing_state.segwit_parsed_once {
-            info!("Mark segwit parsed once");
+            info!("Set segwit parsed once");
             ctx.tx_signing_state.segwit_parsed_once = true;
         }
     }
@@ -300,13 +239,36 @@ pub fn handler_hash_input_finalize_full(
     Ok(())
 }
 
+fn parse_extra_data(buf: &[u8]) -> Result<(u32, u8, u32), AppSW> {
+    if buf.len() < 9 {
+        error!("Not enough data for extra header data");
+        return Err(AppSW::WrongApduLength);
+    }
+
+    // NOTE: for some reason big endian is used here
+    let locktime: u32 = u32::from_be_bytes(buf[..4].try_into().unwrap());
+    let sighash_type: u8 = buf[4];
+    let expiry_height: u32 = u32::from_be_bytes(buf[5..9].try_into().unwrap());
+
+    info!("Extra TX data received:");
+    info!("locktime: {}", locktime);
+    info!("sighash_type: {}", sighash_type);
+    info!("expiry_height: {}", expiry_height);
+
+    Ok((locktime, sighash_type, expiry_height))
+}
+
 pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), AppSW> {
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
-    if ctx.tx_signing_state.segwit_parsed_once && !ctx.is_ready_to_sign {
-        // not used 2 + locktime 4 + sighhash ty 1 +  expiry height 4
-        const EXTRA_HEADER_DATA_LEN: usize = 11;
+    if data.is_empty() {
+        error!("Not enough data for derivation path length");
+        return Err(AppSW::WrongApduLength);
+    }
 
+    if ctx.tx_signing_state.segwit_parsed_once && !ctx.is_extra_header_data_set {
+        // not used path size 1 + not used auth len 1 + locktime 4 + sighhash ty 1 +  expiry height 4
+        const EXTRA_HEADER_DATA_LEN: usize = 11;
         if data.len() != EXTRA_HEADER_DATA_LEN {
             error!("Not enough data for extra header data");
             return Err(AppSW::WrongApduLength);
@@ -316,33 +278,29 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         let data = &data[2..];
 
         // Extract extra TX data
-        // TODO: FIXME: double check endianness of locktime and expiry height
-        let locktime: u32 = u32::from_be_bytes(data[..4].try_into().unwrap());
-        let sighash_type: u8 = data[4];
-        let expiry_height: u32 = u32::from_be_bytes(data[5..9].try_into().unwrap());
-
-        info!("Extra TX data received:");
-        info!("locktime: {}", locktime);
-        info!("sighash_type: {}", sighash_type);
-        info!("expiry_height: {}", expiry_height);
+        let (locktime, sighash_type, expiry_height) = parse_extra_data(data)?;
 
         ctx.tx_info.locktime = locktime;
         ctx.tx_info.sighash_type = sighash_type;
         ctx.tx_info.expiry_height = expiry_height;
 
-        ctx.is_ready_to_sign = true;
+        ctx.is_extra_header_data_set = true;
 
         return Ok(());
     }
 
-    // TODO: add more state checks before signing
-
-    if data.is_empty() {
-        error!("Not enough data for derivation path length");
-        return Err(AppSW::WrongApduLength);
+    if !ctx.parser.is_ready_to_sign() {
+        error!("Bad processing state for signing");
+        return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
     let path_len = data[0] as usize * 4 + 1; // Path segment 4 bytes + 1 byte length
+
+    if data.len() < path_len {
+        error!("Not enough data for derivation path");
+        return Err(AppSW::WrongApduLength);
+    }
+
     let path_data = &data[..path_len];
     let path: Bip32Path = path_data.try_into()?;
 
@@ -351,16 +309,7 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
-    // TODO: skip parsing of not used data?
-    let data = &data[path_len..];
-
-    // Skip not used auth length
-    let _nu = data[0];
-    let data = &data[1..];
-
-    // Read locktime && sighash type
-    let _locktime: u32 = u32::from_be_bytes(data[..4].try_into().unwrap());
-    let _sighash_type: u8 = data[4];
+    // Skip unused trailing data
 
     // Finalize hash
     compute_signature_and_append(

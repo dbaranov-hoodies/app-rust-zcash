@@ -1,4 +1,3 @@
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::{cmp, iter, mem};
 use ledger_device_sdk::hmac::HMACError;
@@ -179,20 +178,32 @@ impl<'b> ByteReader<'b> {
         ByteReader { buf, pos: 0 }
     }
 
-    pub fn remaining_bytes(&self) -> usize {
+    pub fn remaining_len(&self) -> usize {
         self.buf.len() - self.pos
     }
 
     pub fn _remaining_debug(&self) {
         debug!(
             "Remaining bytes (len {}) {:X?}",
-            self.remaining_bytes(),
+            self.remaining_len(),
             &self.buf[self.pos..]
         );
     }
 
     fn remaining_slice(&self) -> &[u8] {
         &self.buf[self.pos..]
+    }
+
+    fn skip(&mut self, n: usize) -> core2::io::Result<()> {
+        let remaining = self.buf.len() - self.pos;
+        if n > remaining {
+            return Err(core2::io::Error::new(
+                core2::io::ErrorKind::UnexpectedEof,
+                "not enough bytes to skip",
+            ));
+        }
+        self.pos += n;
+        Ok(())
     }
 }
 
@@ -257,10 +268,14 @@ impl Parser {
         self.state == ParserState::TransactionPresignReady
     }
 
+    pub fn is_ready_to_sign(&self) -> bool {
+        self.state == ParserState::TransactionReadyToSign
+    }
+
     pub fn parse_chunk(&mut self, ctx: &mut ParserCtx<'_>, data: &[u8]) -> Result<(), ParserError> {
         let mut reader = ByteReader::new(data);
 
-        while reader.remaining_bytes() > 0 {
+        while reader.remaining_len() > 0 {
             let prev_state = self.state;
 
             match self.state {
@@ -439,7 +454,7 @@ impl Parser {
             return Err(ParserError::from_str("Invalid trusted input size"));
         }
 
-        if reader.remaining_bytes() < trusted_input_len {
+        if reader.remaining_len() < trusted_input_len {
             return Err(ParserError::from_str("Not enough data for trusted input"));
         }
 
@@ -671,8 +686,8 @@ impl Parser {
 
                 self.state = ParserState::TransactionPresignReady;
 
-                // FIXME: HMMM??? 4 zero bytes remaining
-                reader._remaining_debug();
+                // Skip traling bytes if any
+                ok!(reader.skip(reader.remaining_len()));
 
                 return Ok(());
             }
@@ -706,7 +721,7 @@ impl Parser {
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        let value = ok!({
+        let amount = ok!({
             let mut tmp = [0u8; 8];
             ok!(reader.read_exact(&mut tmp));
             Zatoshis::from_nonnegative_i64_le_bytes(tmp)
@@ -718,21 +733,21 @@ impl Parser {
             .expect("should be set at this point")
             == self.output_parsed_count as u32
         {
-            ctx.trusted_input_info.amount = value.into_u64();
+            ctx.trusted_input_info.amount = amount.into_u64();
             info!(
                 "Found amount for trusted input: {}",
                 ctx.trusted_input_info.amount
             );
         }
 
-        ok!(ctx.hashers.outputs_hasher.update(&value.to_i64_le_bytes()));
+        ok!(ctx.hashers.outputs_hasher.update(&amount.to_i64_le_bytes()));
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
 
         if script_size > MAX_SCRIPT_SIZE {
             return Err(ParserError::from_str("Bad output script size"));
         }
 
-        info!("Output value: {:?}", value);
+        info!("Output amount: {:?}", amount);
         info!("Output script size: {}", script_size);
 
         self.state = ParserState::ProcessOutputScript {
@@ -959,7 +974,7 @@ impl Parser {
 
 pub struct OutputParserCtx<'ctx> {
     pub tx_info: &'ctx mut TxInfo,
-    pub _hashers: &'ctx mut Hashers,
+    pub hashers: &'ctx mut Hashers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -975,8 +990,8 @@ pub struct OutputParser {
     output_count: usize,
     pub total_output_amount: u64,
     output_parsed_count: usize,
-    current_output_script: Vec<u8>,
     current_output_amount: u64,
+    script_bytes: Vec<u8>,
 }
 
 impl OutputParser {
@@ -986,8 +1001,8 @@ impl OutputParser {
             output_count: 0,
             output_parsed_count: 0,
             total_output_amount: 0,
-            current_output_script: Vec::new(),
             current_output_amount: 0,
+            script_bytes: Vec::new(),
         }
     }
 
@@ -995,14 +1010,10 @@ impl OutputParser {
         self.state == OutputParseState::OutputProcessingDone
     }
 
-    pub fn is_started(&self) -> bool {
-        self.state != OutputParseState::ParsingNumberOfOutputs
-    }
-
     pub fn parse(&mut self, ctx: &mut OutputParserCtx<'_>, data: &[u8]) -> Result<(), ParserError> {
         let mut reader = ByteReader::new(data);
 
-        while reader.remaining_bytes() > 0 {
+        while reader.remaining_len() > 0 {
             let prev_state = self.state;
 
             match &self.state {
@@ -1014,18 +1025,25 @@ impl OutputParser {
                         return Err(ParserError::from_str("Too many outputs"));
                     }
 
+                    ctx.hashers
+                        .outputs_hasher
+                        .init_with_perso(ZCASH_OUTPUTS_HASH_PERSONALIZATION);
+
                     self.output_count = output_count;
                     self.state = OutputParseState::ParsingOutput;
                 }
                 OutputParseState::ParsingOutput => {
-                    let value = ok!({
+                    let amount: Zatoshis = ok!({
                         let mut tmp = [0u8; 8];
                         ok!(reader.read_exact(&mut tmp));
                         Zatoshis::from_nonnegative_i64_le_bytes(tmp)
                     });
 
-                    info!("Output value: {:?}", value);
-                    self.current_output_amount = value.into_u64();
+                    info!("Output amount: {:?}", amount);
+
+                    ok!(ctx.hashers.outputs_hasher.update(&amount.to_i64_le_bytes()));
+
+                    self.current_output_amount = amount.into_u64();
                     self.total_output_amount = self
                         .total_output_amount
                         .saturating_add(self.current_output_amount);
@@ -1038,9 +1056,8 @@ impl OutputParser {
 
                     info!("Output script size: {}", script_size);
 
-                    self.current_output_script.clear();
-                    self.current_output_script
-                        .extend(iter::repeat_n(0, script_size));
+                    self.script_bytes.clear();
+                    self.script_bytes.extend(iter::repeat_n(0, script_size));
 
                     self.state = OutputParseState::ProcessOutputScript {
                         size: script_size,
@@ -1054,8 +1071,8 @@ impl OutputParser {
                 } => {
                     let new_remaining_size = {
                         let offset = size - remaining_size;
-                        let len = ok!(reader
-                            .read(&mut self.current_output_script[offset..][..*remaining_size]));
+                        let len =
+                            ok!(reader.read(&mut self.script_bytes[offset..][..*remaining_size]));
 
                         remaining_size.saturating_sub(len)
                     };
@@ -1072,35 +1089,36 @@ impl OutputParser {
                         continue;
                     }
 
-                    match check_output_displayable(
-                        &self.current_output_script,
-                        self.current_output_amount,
-                        &ctx.tx_info.change_pk_hash,
-                    ) {
-                        output @ (CheckDispOutput::Change | CheckDispOutput::Displayable) => {
-                            let is_change = output == CheckDispOutput::Change;
+                    let mut script = Script::default();
+                    // NOTE: take/deallocate self.script_bytes here
+                    script.0 .0 = mem::take(&mut self.script_bytes);
+                    ok!(script.write(ctx.hashers.outputs_hasher.as_writer()));
 
-                            if is_change && ctx.tx_info.is_change_found {
-                                error!("Multiple change outputs detected");
-                                return Err(ParserError::from_str(
-                                    "Multiple change outputs detected",
-                                ));
-                            }
+                    if let output @ (CheckDispOutput::Change | CheckDispOutput::Displayable) =
+                        check_output_displayable(
+                            &script.0 .0,
+                            self.current_output_amount,
+                            &ctx.tx_info.change_pk_hash,
+                        )
+                    {
+                        let is_change = output == CheckDispOutput::Change;
 
-                            let address =
-                                ok!(get_address_from_output_script(&self.current_output_script));
-
-                            ctx.tx_info.outputs.push(TxOutput {
-                                amount: self.current_output_amount,
-                                address: String::from(address.as_str()), // FIXME: use dynamic strings
-                                is_change,
-                            });
-
-                            if is_change {
-                                ctx.tx_info.is_change_found = true;
-                            }
+                        if is_change && ctx.tx_info.is_change_found {
+                            error!("Multiple change outputs detected");
+                            return Err(ParserError::from_str("Multiple change outputs detected"));
                         }
-                        _ => (),
+
+                        let address = ok!(get_address_from_output_script(&script.0 .0));
+
+                        ctx.tx_info.outputs.push(TxOutput {
+                            amount: self.current_output_amount,
+                            address,
+                            is_change,
+                        });
+
+                        if is_change {
+                            ctx.tx_info.is_change_found = true;
+                        }
                     }
 
                     self.output_parsed_count = self.output_parsed_count.saturating_add(1);
@@ -1118,6 +1136,14 @@ impl OutputParser {
                         if !ok!(ui_display_tx(&ctx.tx_info.outputs, fees)) {
                             return Err(ParserError::user());
                         }
+                        info!("All outputs reviewed");
+
+                        ok!(ctx
+                            .hashers
+                            .outputs_hasher
+                            .finalize(&mut ctx.tx_info.outputs_hash));
+
+                        info!("Outputs hash: {}", HexSlice(&ctx.tx_info.outputs_hash));
 
                         self.state = OutputParseState::OutputProcessingDone;
                     } else {
