@@ -14,8 +14,9 @@ use zcash_encoding::CompactSize;
 use zcash_primitives::encoding::ReadBytesExt;
 use zcash_primitives::transaction::txid::{
     ZCASH_HEADERS_HASH_PERSONALIZATION, ZCASH_OUTPUTS_HASH_PERSONALIZATION,
-    ZCASH_PREVOUTS_HASH_PERSONALIZATION, ZCASH_SEQUENCE_HASH_PERSONALIZATION,
-    ZCASH_TRANSPARENT_HASH_PERSONALIZATION, ZCASH_TX_PERSONALIZATION_PREFIX,
+    ZCASH_PREVOUTS_HASH_PERSONALIZATION, ZCASH_SAPLING_HASH_PERSONALIZATION,
+    ZCASH_SEQUENCE_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_HASH_PERSONALIZATION,
+    ZCASH_TX_PERSONALIZATION_PREFIX,
 };
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
@@ -35,8 +36,9 @@ use crate::utils::{
 };
 use crate::AppSW;
 
+mod sapling;
+
 // TODO: use personalization consts from protocol libraries
-const ZCASH_SAPLING_HASH_PERSONALIZATION: &[u8] = b"ZTxIdSaplingHash";
 const ZCASH_ORCHARD_HASH_PERSONALIZATION: &[u8] = b"ZTxIdOrchardHash";
 
 #[allow(unused)]
@@ -116,7 +118,7 @@ impl ParserError {
     }
 }
 
-macro_rules! ok {
+macro_rules! _ok {
     ($expr:expr) => {{
         match $expr {
             Ok(v) => Ok(v),
@@ -138,6 +140,8 @@ macro_rules! ok {
         }?
     }};
 }
+
+use _ok as ok;
 
 #[derive(Debug, Default, PartialEq)]
 pub enum ParserMode {
@@ -162,6 +166,16 @@ pub enum ParserState {
         remaining_size: usize,
     },
     OutputHashingDone,
+    ProcessSapling,
+    ProcessSaplingSpends,
+    ProcessSaplingSpendsHashing,
+    ProcessSaplingOutputsCompact,
+    ProcessSaplingOutputsMemo {
+        size: usize,
+        remaining_size: usize,
+    },
+    ProcessSaplingOutputsNonCompact,
+    ProcessSaplingOutputHashing,
     ProcessExtra,
     TransactionParsed,
     TransactionPresignReady,
@@ -194,7 +208,7 @@ impl<'b> ByteReader<'b> {
         &self.buf[self.pos..]
     }
 
-    fn skip(&mut self, n: usize) -> core2::io::Result<()> {
+    fn advance(&mut self, n: usize) -> core2::io::Result<()> {
         let remaining = self.buf.len() - self.pos;
         if n > remaining {
             return Err(core2::io::Error::new(
@@ -235,9 +249,14 @@ pub struct Parser {
     output_count: usize,
     output_parsed_count: usize,
 
-    sapling_spend_remaining: usize,
+    sapling_spend_count: usize,
+    sapling_spend_parsed_count: usize,
     sapling_output_count: usize,
+    sapling_output_parsed_count: usize,
     orchard_action_count: usize,
+
+    sapling_balance: i64,
+    sapling_anchor: [u8; 32],
 
     script_bytes: Vec<u8>,
 }
@@ -252,10 +271,14 @@ impl Parser {
             input_parsed_count: 0,
             output_count: 0,
             output_parsed_count: 0,
-            sapling_spend_remaining: 0,
+            sapling_spend_count: 0,
+            sapling_spend_parsed_count: 0,
             sapling_output_count: 0,
+            sapling_output_parsed_count: 0,
             orchard_action_count: 0,
 
+            sapling_balance: 0,
+            sapling_anchor: [0u8; 32],
             script_bytes: Vec::new(),
         }
     }
@@ -299,12 +322,31 @@ impl Parser {
                 ParserState::OutputHashingDone => {
                     self.parse_output_hashing_done(ctx, &mut reader)?;
                 }
+                ParserState::ProcessSapling => self.parse_sapling(ctx, &mut reader)?,
+                ParserState::ProcessSaplingSpends => self.parse_sapling_spends(ctx, &mut reader)?,
+                ParserState::ProcessSaplingSpendsHashing => {
+                    self.parse_sapling_spends_hashing(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputsCompact => {
+                    self.parse_sapling_outputs_compact(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputsMemo {
+                    size,
+                    remaining_size,
+                } => self.parse_sapling_outputs_memo(ctx, &mut reader, size, remaining_size)?,
+                ParserState::ProcessSaplingOutputsNonCompact => {
+                    self.parse_sapling_outputs_non_compact(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputHashing => {
+                    self.parse_sapling_output_hashing(ctx, &mut reader)?
+                }
                 ParserState::ProcessExtra => self.parse_process_extra(ctx, &mut reader)?,
                 ParserState::TransactionParsed
                 | ParserState::TransactionPresignReady
                 | ParserState::TransactionReadyToSign => {
                     break;
                 }
+                _ => todo!(),
             }
 
             if self.state != prev_state {
@@ -389,7 +431,11 @@ impl Parser {
 
         ctx.tx_info.total_amount = 0;
         self.input_count = input_count;
-        self.state = ParserState::WaitInput;
+        self.state = if self.input_count == 0 {
+            ParserState::InputHashingDone
+        } else {
+            ParserState::WaitInput
+        };
 
         Ok(())
     }
@@ -674,7 +720,7 @@ impl Parser {
                 self.state = ParserState::TransactionPresignReady;
 
                 // Skip traling bytes if any
-                ok!(reader.skip(reader.remaining_len()));
+                ok!(reader.advance(reader.remaining_len()));
 
                 return Ok(());
             }
@@ -803,15 +849,21 @@ impl Parser {
     ) -> Result<(), ParserError> {
         info!("Output hashing done");
 
-        self.sapling_spend_remaining = ok!(CompactSize::read_t(&mut *reader));
+        self.sapling_spend_count = ok!(CompactSize::read_t(&mut *reader));
         self.sapling_output_count = ok!(CompactSize::read_t(&mut *reader));
         self.orchard_action_count = ok!(CompactSize::read_t(&mut *reader));
 
-        info!("Sapling spend remaining: {}", self.sapling_spend_remaining);
+        info!("Sapling spend remaining: {}", self.sapling_spend_count);
         info!("Sapling output count: {}", self.sapling_output_count);
         info!("Orchard action count: {}", self.orchard_action_count);
 
-        self.state = ParserState::ProcessExtra;
+        self.state = if self.sapling_spend_count > 0 || self.sapling_output_count > 0 {
+            ParserState::ProcessSapling
+        } else if self.orchard_action_count > 0 {
+            todo!()
+        } else {
+            ParserState::ProcessExtra
+        };
 
         Ok(())
     }
@@ -861,7 +913,7 @@ impl Parser {
             .branch_id
             .expect("branch_id should be set at this point");
 
-        if ctx.tx_info.tx_version == Some(TxVersion::V5) {
+        if let Some(TxVersion::V4 | TxVersion::V5) = ctx.tx_info.tx_version {
             let prevouts_hash = {
                 let mut hash = [0u8; 32];
                 ok!(ctx.hashers.prevouts_hasher.finalize(&mut hash));
@@ -949,9 +1001,12 @@ impl Parser {
                 HexSlice(&ctx.trusted_input_info.tx_id)
             );
         } else {
-            error!("TX ID computation for versions other than V5 is not implemented");
+            error!(
+                "TX ID computation for versions other than V4, V5 is not implemented {:?}",
+                tx_version
+            );
             return Err(ParserError::from_str(
-                "TX ID computation for versions other than V5 is not implemented",
+                "TX ID computation for versions other than V4, V5 is not implemented",
             ));
         }
 

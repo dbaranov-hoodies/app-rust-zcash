@@ -44,6 +44,10 @@ pub struct Hashers {
     pub orchard_hasher: Blake2b_256,
     pub sapling_hasher: Blake2b_256,
 
+    pub tx_memo_hasher: Blake2b_256,
+    pub tx_compact_hasher: Blake2b_256,
+    pub tx_non_compact_hasher: Blake2b_256,
+
     pub tx_full_hasher: Blake2b_256,
 }
 
