@@ -335,18 +335,12 @@ impl Parser {
         let input_count: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Input count: {}", input_count);
 
-        // In case of Signature mode, continue computiing Tx hash from previous state
-        if self.mode == ParserMode::Signature && ctx.tx_state.segwit_parsed_once {
-            info!("Resume segwit hashing for signing");
-            info!("SEGWIT Version {:X?}", version);
-            info!(
-                "SEGWIT prevout hash {}",
-                HexSlice(&ctx.tx_info.prevouts_hash)
-            );
-            info!(
-                "SEGWIT sequence hash {}",
-                HexSlice(&ctx.tx_info.sequence_hash)
-            );
+        // In case of Signature mode, continue computing Tx hash from previous state
+        if self.mode == ParserMode::Signature && ctx.tx_state.is_tx_parsed_once {
+            info!("Resume TX hashing for signing");
+            info!("TX Version {:X?}", version);
+            info!("TX prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
+            info!("TX sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
 
             info!("Compute headers hash");
 
@@ -436,17 +430,10 @@ impl Parser {
     ) -> Result<(), ParserError> {
         debug!("Parsing input for signature mode...");
 
-        let segwit_mode = ok!(reader.read_u8());
-        if segwit_mode != 0x01 {
-            error!(
-                "Unsupported trusted input not in segwit mode: {}",
-                segwit_mode
-            );
-            return Err(ParserError::from_str(
-                "Unsupported trusted input not in segwit mode",
-            ));
-        } else {
-            info!("Trusted input used in segwit mode");
+        let trusted_input_mode = ok!(reader.read_u8());
+        if trusted_input_mode != 0x01 {
+            error!("Unsupported trusted input mode: {}", trusted_input_mode);
+            return Err(ParserError::from_str("Unsupported trusted input mode"));
         }
 
         let trusted_input_len = ok!(reader.read_u8()) as usize;
@@ -520,7 +507,7 @@ impl Parser {
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Script size: {}", script_size);
 
-        if ctx.tx_state.segwit_parsed_once {
+        if ctx.tx_state.is_tx_parsed_once {
             ok!(ctx
                 .hashers
                 .prevouts_hasher
@@ -584,7 +571,7 @@ impl Parser {
 
         ok!(ctx.hashers.sequence_hasher.update(&sequence.to_le_bytes()));
 
-        if ctx.tx_state.segwit_parsed_once {
+        if ctx.tx_state.is_tx_parsed_once {
             ok!(script_sig.write(ctx.hashers.prevouts_hasher.as_writer()));
             ok!(ctx.hashers.prevouts_hasher.update(&sequence.to_le_bytes()));
         }
@@ -594,7 +581,7 @@ impl Parser {
         if self.input_count == self.input_parsed_count {
             info!("All inputs parsed");
 
-            if self.mode == ParserMode::Signature && ctx.tx_state.segwit_parsed_once {
+            if self.mode == ParserMode::Signature && ctx.tx_state.is_tx_parsed_once {
                 let mut txin_sig_digest = [0u8; 32];
                 ok!(ctx.hashers.prevouts_hasher.finalize(&mut txin_sig_digest));
                 info!("txin sig digest {}", HexSlice(&txin_sig_digest));
@@ -659,7 +646,7 @@ impl Parser {
                 return Ok(());
             }
 
-            if self.mode == ParserMode::Signature && !ctx.tx_state.segwit_parsed_once {
+            if self.mode == ParserMode::Signature && !ctx.tx_state.is_tx_parsed_once {
                 ok!(ctx
                     .hashers
                     .prevouts_hasher

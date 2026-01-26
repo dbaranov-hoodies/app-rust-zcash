@@ -87,7 +87,7 @@ pub fn public_key_hash160(public_key: &[u8]) -> Result<[u8; 20], AppSW> {
     Ok(ripemd160_output)
 }
 
-fn compute_cheksum(input: &[u8]) -> [u8; 4] {
+fn compute_checksum(input: &[u8]) -> [u8; 4] {
     use ledger_device_sdk::hash::{sha2::Sha2_256, HashInit};
 
     let mut sha256 = Sha2_256::new();
@@ -137,7 +137,7 @@ pub fn public_key_to_address_base58(public_key: &[u8], is_hashed: bool) -> Resul
         buf[2..22].copy_from_slice(&pubkey_hash160);
     }
 
-    let checksum = compute_cheksum(&buf[0..22]);
+    let checksum = compute_checksum(&buf[0..22]);
     buf[22..26].copy_from_slice(&checksum);
 
     let mut address_base58 = String::new();
@@ -188,6 +188,8 @@ impl core::fmt::Display for HexSlice<'_> {
     }
 }
 
+/// Constant-time memory comparison to prevent timing attacks.
+#[inline(never)]
 pub fn secure_memcmp(buf1: &[u8], buf2: &[u8]) -> bool {
     if buf1.len() != buf2.len() {
         return false;
@@ -218,10 +220,6 @@ pub fn output_script_is_regular(script_pubkey: &[u8]) -> bool {
     const REGULAR_PREFIX: [u8; 3] = [0x76, 0xA9, 0x14];
     // OP_EQUALVERIFY, OP_CHECKSIG
     const REGULAR_POSTFIX: [u8; 2] = [0x88, 0xAC];
-
-    if script_pubkey.len() < 25 {
-        return false;
-    }
 
     if script_pubkey[0] != REGULAR_PREFIX[0]
         || script_pubkey[1] != REGULAR_PREFIX[1]
@@ -314,11 +312,6 @@ pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
     const ADDRESS_OFFSET: usize = 3;
     const VERSION_SIZE: usize = 2;
     const ADDRESS_SIZE: usize = 22;
-
-    if script.len() != 0x19 {
-        error!("Bad script length");
-        return Err(AppSW::IncorrectData);
-    }
 
     if output_script_is_op_return(script) {
         error!("Unsupported OP_RETURN script");

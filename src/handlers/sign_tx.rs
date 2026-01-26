@@ -87,7 +87,7 @@ pub struct TrustedInputInfo {
 
 #[derive(Default)]
 pub struct TxSigningState {
-    pub segwit_parsed_once: bool,
+    pub is_tx_parsed_once: bool,
 }
 
 pub struct TxContext {
@@ -230,9 +230,9 @@ pub fn handler_hash_input_finalize_full(
 
     if ctx.output_parser.is_finished() {
         ctx.review_finished = true;
-        if !ctx.tx_signing_state.segwit_parsed_once {
-            info!("Set segwit parsed once");
-            ctx.tx_signing_state.segwit_parsed_once = true;
+        if !ctx.tx_signing_state.is_tx_parsed_once {
+            info!("Set TX parsed once flag");
+            ctx.tx_signing_state.is_tx_parsed_once = true;
         }
     }
 
@@ -266,7 +266,7 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         return Err(AppSW::WrongApduLength);
     }
 
-    if ctx.tx_signing_state.segwit_parsed_once && !ctx.is_extra_header_data_set {
+    if ctx.tx_signing_state.is_tx_parsed_once && !ctx.is_extra_header_data_set {
         // not used path size 1 + not used auth len 1 + locktime 4 + sighhash ty 1 +  expiry height 4
         const EXTRA_HEADER_DATA_LEN: usize = 11;
         if data.len() != EXTRA_HEADER_DATA_LEN {

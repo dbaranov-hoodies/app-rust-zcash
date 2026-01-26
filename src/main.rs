@@ -55,7 +55,7 @@ use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
-        P2_CONTINUE_HASHING, P2_SEGWIT_SAPLING, ZCASH_CLA,
+        P2_CONTINUE_HASHING, P2_OPERATION_TYPE_SAPLING, ZCASH_CLA,
     },
     handlers::{
         get_trusted_input::handler_get_trusted_input,
@@ -155,7 +155,7 @@ impl TryFrom<ApduHeader> for Instruction {
             (
                 INS_HASH_INPUT_START,
                 p1,
-                p2 @ (P2_SEGWIT_SAPLING | P2_CONTINUE_HASHING), // Only support Sapling
+                p2 @ (P2_OPERATION_TYPE_SAPLING | P2_CONTINUE_HASHING), // Only support Sapling
             ) => Ok(Instruction::HashInputStart {
                 first: p1 == P1_FIRST,
                 continue_hashing: p1 == P1_FIRST && p2 == P2_CONTINUE_HASHING,
