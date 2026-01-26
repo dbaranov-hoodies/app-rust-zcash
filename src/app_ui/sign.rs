@@ -36,20 +36,18 @@ pub fn ui_display_tx(outputs: &[TxOutput], fees: u64) -> Result<bool, AppSW> {
     let mut name_strs = Vec::new();
     let mut value_strs = Vec::new();
 
-    for (idx, output) in outputs.iter().enumerate() {
+    // Only display non-change outputs
+    for (idx, output) in outputs
+        .iter()
+        .filter(|output| !output.is_change)
+        .enumerate()
+    {
         // Make it 1-based for display
         let idx = idx + 1;
-        name_strs.push(if output.is_change {
-            (
-                format!("Change output #{idx} amount"),
-                format!("Change output #{idx} address"),
-            )
-        } else {
-            (
-                format!("Output #{idx} amount"),
-                format!("Output #{idx} address"),
-            )
-        });
+        name_strs.push((
+            format!("Output #{idx} amount"),
+            format!("Output #{idx} address"),
+        ));
 
         value_strs.push(format_zec_amount(output.amount));
     }
@@ -57,7 +55,12 @@ pub fn ui_display_tx(outputs: &[TxOutput], fees: u64) -> Result<bool, AppSW> {
     // Define transaction review fields
     let mut my_fields = Vec::new();
 
-    for (idx, output) in outputs.iter().enumerate() {
+    // Only display non-change outputs
+    for (idx, output) in outputs
+        .iter()
+        .filter(|output| !output.is_change)
+        .enumerate()
+    {
         my_fields.push(Field {
             name: name_strs[idx].0.as_str(),
             value: value_strs[idx].as_str(),
