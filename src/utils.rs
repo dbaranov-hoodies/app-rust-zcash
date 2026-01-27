@@ -66,15 +66,10 @@ pub struct PubKeyWithCC {
 
 pub fn derive_public_key(path: &Bip32Path) -> Result<PubKeyWithCC, AppSW> {
     use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
-    debug!("p1 path {:?}", path.as_ref());
+    let (k, cc) = Secp256k1::derive_from(path.as_ref());
 
-    let (k, cc) = Secp256k1::derive_from(path.);
-        debug!("p2");
     let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
-        debug!("p3");
-
     let code = cc.ok_or(AppSW::IncorrectData)?;
-        debug!("p4");
     Ok(PubKeyWithCC {
         public_key: pk.pubkey,
         public_key_len: pk.keylength,
