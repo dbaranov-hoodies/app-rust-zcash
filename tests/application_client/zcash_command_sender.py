@@ -167,7 +167,7 @@ class ZcashCommandSender:
                 if continue_hashing
                 else P2.P2_TRUSTED_INPUT_SAPLING
             ),
-            data=header + inputs_num.to_bytes(1),
+            data=header + inputs_num.to_bytes(1, byteorder="big"),
         )
 
         # Send trusted inputs chunks
@@ -184,10 +184,10 @@ class ZcashCommandSender:
                 ins=InsType.HASH_INPUT_START,
                 p1=P1.P1_MORE,
                 p2=P2.P2_TRUSTED_INPUT_SAPLING,
-                data=flag.to_bytes(1)
-                + trusted_input_len.to_bytes(1)
+                data=flag.to_bytes(1, byteorder="big")
+                + trusted_input_len.to_bytes(1, byteorder="big")
                 + trusted_input_data
-                + script_len.to_bytes(1),
+                + script_len.to_bytes(1, byteorder="big"),
             )
 
             self.backend.exchange(
@@ -213,7 +213,7 @@ class ZcashCommandSender:
         # Send outputs chunks
         outputs: dict = self.tx_chunks["outputs"] # type: ignore
         outputs_num = len(outputs)
-        outputs_num_bytes = outputs_num.to_bytes(1)
+        outputs_num_bytes = outputs_num.to_bytes(1, byteorder="big")
 
         if change_path:
             self.backend.exchange(
@@ -234,7 +234,7 @@ class ZcashCommandSender:
                 ins=InsType.HASH_INPUT_FINALIZE_FULL,
                 p1=P1.P1_MORE,
                 p2=P2.P2_NONE,
-                data=outputs_num_bytes + value + script_len.to_bytes(1) + script,
+                data=outputs_num_bytes + value + script_len.to_bytes(1, byteorder="big") + script,
             )
 
             outputs_num_bytes = b""
@@ -248,7 +248,7 @@ class ZcashCommandSender:
             ins=InsType.HASH_INPUT_FINALIZE_FULL,
             p1=P1.P1_MORE,
             p2=P2.P2_NONE,
-            data=outputs_num_bytes + value + script_len.to_bytes(1) + script,
+            data=outputs_num_bytes + value + script_len.to_bytes(1, byteorder="big") + script,
         ) as response:
             yield response
 
@@ -261,10 +261,10 @@ class ZcashCommandSender:
             ins=InsType.HASH_SIGN,
             p1=P1.P1_START,
             p2=P2.P2_NONE,
-            data=0x00.to_bytes(2)
-            + locktime.to_bytes(4)
-            + sighash_type.to_bytes(1)
-            + expiry.to_bytes(4),
+            data=0x00.to_bytes(2, byteorder="big")
+            + locktime.to_bytes(4, byteorder="big")
+            + sighash_type.to_bytes(1, byteorder="big")
+            + expiry.to_bytes(4, byteorder="big"),
         )
 
         self._send_trusted_inputs_and_header(continue_hashing=True)
@@ -275,10 +275,10 @@ class ZcashCommandSender:
             p1=P1.P1_START,
             p2=P2.P2_NONE,
             data=pack_derivation_path(path)
-            + 0x00.to_bytes(1)
-            + locktime.to_bytes(4)
-            + sighash_type.to_bytes(1)
-            + expiry.to_bytes(4),
+            + 0x00.to_bytes(1, byteorder="big")
+            + locktime.to_bytes(4, byteorder="big")
+            + sighash_type.to_bytes(1, byteorder="big")
+            + expiry.to_bytes(4, byteorder="big"),
         )
 
     def get_async_response(self) -> Optional[RAPDU]:
