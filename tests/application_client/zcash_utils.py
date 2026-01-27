@@ -9,8 +9,7 @@ UINT32_MAX: int = 2**32-1
 UINT16_MAX: int = 2**16-1
 
 try:
-    import hashlib
-    _ripemd160 = lambda: hashlib.new("ripemd160") # type: ignore
+    _ripemd160 = lambda: hashlib.new("ripemd160") # type: ignore # pylint: disable=C3001
 except ValueError:
     _ripemd160 = None # type: ignore
 
@@ -20,7 +19,7 @@ def ripemd160(data: bytes) -> bytes:
     #    h.update(data)
     #    return h.digest()
     # fallback
-    from Crypto.Hash import RIPEMD160
+    from Crypto.Hash import RIPEMD160 # pylint: disable=C0415
     h = RIPEMD160.new()
     h.update(data)
     return h.digest()
