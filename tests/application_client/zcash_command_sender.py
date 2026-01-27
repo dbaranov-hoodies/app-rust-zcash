@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Generator, List, Optional, Tuple
+from typing import Any, Generator, List, Optional, Tuple
 from contextlib import contextmanager
 from struct import pack
 
@@ -70,7 +70,7 @@ def split_message(message: bytes, max_size: int) -> List[bytes]:
 class ZcashCommandSender:
     def __init__(self, backend: BackendInterface) -> None:
         self.backend = backend
-        self.tx_chunks: Optional[dict] = None
+        self.tx_chunks: dict = {}
         self.trusted_inputs: list[bytes] = []
 
     def exchange_raw(self, data: str) -> Tuple[int, bytes]:
@@ -211,7 +211,7 @@ class ZcashCommandSender:
         self._send_trusted_inputs_and_header(continue_hashing=False)
 
         # Send outputs chunks
-        outputs = self.tx_chunks["outputs"]
+        outputs = self.tx_chunks["outputs"] # type: ignore
         outputs_num = len(outputs)
         outputs_num_bytes = outputs_num.to_bytes(1)
 
