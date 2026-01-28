@@ -141,7 +141,6 @@ impl SwapAppErrorCodeTrait for SwapAppErrorCode {
 /// - Destination address has invalid UTF-8 (DestinationDecodeFail)
 /// - Destination address hex decode fails (DestinationDecodeFail)
 /// - Destination address doesn't match (ErrorWrongDestination)
-
 #[allow(unused)]
 pub fn check_swap_params(
     params: &CreateTxParams,

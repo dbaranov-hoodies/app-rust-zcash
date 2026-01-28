@@ -69,21 +69,21 @@ pub const P1_FIRST: u8 = 0x00;
 pub const P1_NEXT: u8 = 0x80;
 pub const FINALIZE_P1_CHANGEINFO: u8 = 0xFF;
 
-// Application status words.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppSW {
     PinRemainingAttempts = 0x63C0,
+    WrongApduLength = 0x6700, // Normally we should use StatusWord::BadLen(0x6e03)
     CommandIncompatibleFileStructure = 0x6981,
-    SecurityStatusNotSatisfied = 0x6982,
+    SecurityStatusNotSatisfied = StatusWords::NothingReceived as u16,
     IncorrectData = 0x6A80,
     NotEnoughMemorySpace = 0x6A84,
     ReferencedDataNotFound = 0x6A88,
     FileAlreadyExists = 0x6A89,
     SwapWithoutTrustedInputs = 0x6A8A,
-    WrongP1P2 = 0x6B00,
-    InsNotSupported = 0x6D00,
-    ClaNotSupported = 0x6E00,
+    WrongP1P2 = 0x6B00, // Normally we should use StatusWord::BadP1P2(0x6e02)
+    InsNotSupported = 0x6D00, // Normally we should use StatusWord::BadIns(0x6e01)
+    ClaNotSupported = StatusWords::BadCla as u16,
     MemoryProblem = 0x9240,
     NoEfSelected = 0x9400,
     InvalidOffset = 0x9402,
@@ -100,21 +100,13 @@ pub enum AppSW {
     GpAuthFailed = 0x6300,
     Licensing = 0x6F42,
     Halted = 0x6FAA,
-    Deny = 0x6985,
+    Deny = StatusWords::UserCancelled as u16,
     ConditionsOfUseNotSatisfied = 0x6986, // 0x6985
     //TxWrongLength = 0x6F00,
     TechnicalProblem = 0x6F00,
-    TxDisplayFail = 0xB001,
-    AddrDisplayFail = 0xB002,
-    TxWrongLength = 0xB004,
-    TxParsingFail = 0xB005,
-    TxHashFail = 0xB006,
-    TxSignFail = 0xB008,
-    KeyDeriveFail = 0xB009,
-    VersionParsingFail = 0xB00A,
-    WrongApduLength = StatusWords::BadLen as u16,
-    SwapFail = 0xC000,
-    Ok = 0x9000,
+    VersionParsingFail = 0x6F01,
+    TxParsingFail = 0x6F02,
+    Ok = StatusWords::Ok as u16 ,
 }
 
 impl From<AppSW> for Reply {

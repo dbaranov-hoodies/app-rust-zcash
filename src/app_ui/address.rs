@@ -36,7 +36,7 @@ pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
     Ok(NbglAddressReview::new()
         .glyph(&FERRIS)
         .review_title("Verify ZCASH address")
-        .show(&addr))
+        .show(addr))
 }
 
 
