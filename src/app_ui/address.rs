@@ -26,7 +26,7 @@ pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
 
     // Load glyph from file with include_gif macro. Creates an NBGL compatible glyph.
     #[cfg(target_os = "apex_p")]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_14px.png", NBGL));
+    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_48px.png", NBGL));
     #[cfg(any(target_os = "stax", target_os = "flex"))]
     const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_64px.png", NBGL));
     #[cfg(any(target_os = "nanosplus", target_os = "nanox"))]
