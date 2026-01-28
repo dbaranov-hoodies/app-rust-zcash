@@ -191,6 +191,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     if tx_ctx.swap_params.is_some() {
         return;
     }
+    #[cfg_attr(any(target_os = "nanox", target_os = "nanosplus"), allow(unused_variables))]
     let (show_status, status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
@@ -204,7 +205,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     };
 
     if show_status {
-        #[cfg_attr(any(target_os = "nanox", target_os = "nanosplus"), allow(unused_variables))]
+        #[cfg(not(any(target_os = "nanox", target_os = "nanosplus")))]
         {
             use ledger_device_sdk::nbgl::NbglReviewStatus;
 
