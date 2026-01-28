@@ -1,12 +1,7 @@
+# pylint: disable=C0301
+
 from application_client.zcash_command_sender import ZcashCommandSender
 from application_client.zcash_response_unpacker import unpack_get_public_key_response
-
-from application_client.zcash_transaction import Transaction
-from application_client.zcash_command_sender import ZcashCommandSender, Errors
-from application_client.zcash_response_unpacker import unpack_get_public_key_response, unpack_sign_tx_response
-from application_client.utils import check_signature_validity
-from ragger.error import ExceptionRAPDU
-from ragger.navigator import NavIns, NavInsID
 
 def test_sign_tx_v5_simple(backend, scenario_navigator):
     LOCKTIME = 0x00
@@ -17,7 +12,7 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
     )
 
     TX_BYTES = bytes.fromhex(
-        "050000800a27a726b4d0d6c2" + LOCKTIME.to_bytes(4).hex() + EXPIRY.to_bytes(4).hex() + # header
+        "050000800a27a726b4d0d6c2" + LOCKTIME.to_bytes(4, byteorder="big").hex() + EXPIRY.to_bytes(4, byteorder="big").hex() + # header
         "01" + "58854aa4e2e3b82aa2040c0bc3a6dc9b8ac6acb5e15bf0cfeacd09e77249c18a" + "00000000" + # hash + prevout idx
         "19" + "76a914ca3ba17907dde979bf4e88f5c1be0ddf0847b25d88ac00000000" + #input scriptPubKey + sequence
         "01" + "958ddd0400000000" + # output amount
@@ -65,7 +60,7 @@ def test_sign_tx_v5_change(backend, scenario_navigator):
     )
 
     TX_BYTES = bytes.fromhex(
-        "050000800a27a726b4d0d6c2" + LOCKTIME.to_bytes(4).hex() + EXPIRY.to_bytes(4).hex() + # header
+        "050000800a27a726b4d0d6c2" + LOCKTIME.to_bytes(4, byteorder="big").hex() + EXPIRY.to_bytes(4, byteorder="big").hex() + # header
         "01" + "58854aa4e2e3b82aa2040c0bc3a6dc9b8ac6acb5e15bf0cfeacd09e77249c18a" + "00000000" + # hash + prevout idx
         "19" + "76a914ca3ba17907dde979bf4e88f5c1be0ddf0847b25d88ac00000000" + #input scriptPubKey + sequence
         "02" + "005a620200000000" + # output amount

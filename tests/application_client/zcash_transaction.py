@@ -57,9 +57,12 @@ class Transaction:
 #
 #  -- witness data (excluded from txid) --
 #
-# NOTE: lockTime and expiryHeight are, for some reason, serialized at the end of the transaction data
+# NOTE: lockTime and expiryHeight are, for some reason,
+# serialized at the end of the transaction data
 # (as if it were a v4 transaction format).
 def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
+    # pylint: disable=R0914
+
     i = 0
     chunks = []
 
@@ -117,6 +120,8 @@ def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
     return chunks
 
 def split_tx_v5_for_hash_input(buf: bytes) -> dict[str, object]:
+    # pylint: disable=R0914
+
     i = 0
 
     header_size = 4 * 5
