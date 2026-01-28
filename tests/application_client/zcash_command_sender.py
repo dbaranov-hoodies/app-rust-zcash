@@ -31,7 +31,7 @@ class P2(IntEnum):
     P2_CONTINUE_HASHING = 0x80
 
 class InsType(IntEnum):
-    GET_VERSION    = 0x03
+    GET_VERSION    = 0xC4
     GET_APP_NAME   = 0x04
     GET_WALLET_PUBLIC_KEY = 0x40
     GET_TRUSTED_INPUT     = 0x42
