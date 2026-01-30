@@ -15,7 +15,6 @@
  *  limitations under the License.
  *****************************************************************************/
 
-
 use ledger_device_sdk::nbgl::NbglAddressReview;
 
 use crate::{app_ui::load_glyph, AppSW};

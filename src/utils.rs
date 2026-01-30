@@ -5,7 +5,6 @@ use crate::log::{debug, error};
 pub mod blake2b_256_pers;
 use crate::AppSW;
 
-
 /// BIP32 derivation path stored as a vector of u32 components.
 ///
 /// Each component represents one level in the path (e.g., m/44'/1'/0'/0/0 has 5 components).
