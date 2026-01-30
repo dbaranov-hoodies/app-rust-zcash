@@ -150,8 +150,7 @@ impl<'a> TxContext<'a> {
     }
 
     // Get review status
-    #[allow(dead_code)]
-    pub fn finished(&self) -> bool {
+    pub fn is_review_finished(&self) -> bool {
         self.review_finished
     }
     // Implement reset for TxInfo

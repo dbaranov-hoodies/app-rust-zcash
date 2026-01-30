@@ -194,7 +194,9 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
-        (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok) if tx_ctx.finished() => {
+        (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok)
+            if tx_ctx.is_review_finished() =>
+        {
             (true, StatusType::Transaction)
         }
         (_, _) => (false, StatusType::Transaction),
