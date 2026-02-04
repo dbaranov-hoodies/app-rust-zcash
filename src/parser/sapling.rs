@@ -323,15 +323,15 @@ impl Parser {
         );
 
         // Initialize the sapling output digest context
-        let mut tmp_output_hasher = Blake2b_256::new();
-        tmp_output_hasher.init_with_perso(ZCASH_SAPLING_OUTPUTS_HASH_PERSONALIZATION);
+        let mut sapling_output_hasher = Blake2b_256::new();
+        sapling_output_hasher.init_with_perso(ZCASH_SAPLING_OUTPUTS_HASH_PERSONALIZATION);
 
-        ok!(tmp_output_hasher.update(&sapling_output_compact_digest));
-        ok!(tmp_output_hasher.update(&sapling_output_memo_digest));
-        ok!(tmp_output_hasher.update(&sapling_output_non_compact_digest));
+        ok!(sapling_output_hasher.update(&sapling_output_compact_digest));
+        ok!(sapling_output_hasher.update(&sapling_output_memo_digest));
+        ok!(sapling_output_hasher.update(&sapling_output_non_compact_digest));
 
         let mut sapling_output = [0u8; 32];
-        ok!(tmp_output_hasher.finalize(&mut sapling_output));
+        ok!(sapling_output_hasher.finalize(&mut sapling_output));
         debug!("Sapling output digest: {}", HexSlice(&sapling_output));
 
         // Update sapling full hasher with sapling output digest
@@ -343,9 +343,10 @@ impl Parser {
             .update(&self.sapling_balance.to_le_bytes()));
 
         if self.orchard_action_count > 0 {
-            // TODO: init the orchard actions compact hash
-            // TODO: change state to process orchard actions
-            todo!()
+            ctx.hashers
+                .tx_compact_hasher
+                .init_with_perso(ZCASH_ORCHARD_ACTIONS_COMPACT_HASH_PERSONALIZATION);
+            self.state = ParserState::ProcessOrchardCompact;
         } else {
             self.state = ParserState::ProcessExtra;
         }

@@ -1,3 +1,6 @@
+use ::orchard::bundle::commitments::{
+    ZCASH_ORCHARD_ACTIONS_COMPACT_HASH_PERSONALIZATION, ZCASH_ORCHARD_HASH_PERSONALIZATION,
+};
 use alloc::vec::Vec;
 use core::{iter, mem};
 use zcash_primitives::transaction::sighash_v5::{
@@ -41,11 +44,9 @@ pub use error::{ParserError, ParserSourceError};
 
 mod compute;
 mod error;
+mod orchard;
 mod reader;
 mod sapling;
-
-// TODO: use personalization consts from protocol libraries
-const ZCASH_ORCHARD_HASH_PERSONALIZATION: &[u8] = b"ZTxIdOrchardHash";
 
 #[derive(Debug, Default, PartialEq)]
 pub enum ParserMode {
@@ -70,6 +71,7 @@ pub enum ParserState {
         remaining_size: usize,
     },
     OutputHashingDone,
+
     ProcessSapling,
     ProcessSaplingSpends {
         anchor: [u8; 32],
@@ -82,6 +84,15 @@ pub enum ParserState {
     },
     ProcessSaplingOutputsNonCompact,
     ProcessSaplingOutputHashing,
+
+    ProcessOrchardCompact,
+    ProcessOrchardMemo {
+        size: usize,
+        remaining_size: usize,
+    },
+    ProcessOrchardNonCompact,
+    ProcessOrchardHashing,
+
     ProcessExtra,
     TransactionParsed,
     TransactionPresignReady,
@@ -110,6 +121,7 @@ pub struct Parser {
     sapling_output_count: usize,
     sapling_output_parsed_count: usize,
     orchard_action_count: usize,
+    orchard_action_parsed_count: usize,
 
     sapling_balance: i64,
 
@@ -131,6 +143,7 @@ impl Parser {
             sapling_output_count: 0,
             sapling_output_parsed_count: 0,
             orchard_action_count: 0,
+            orchard_action_parsed_count: 0,
 
             sapling_balance: 0,
             script_bytes: Vec::new(),
@@ -195,6 +208,19 @@ impl Parser {
                 }
                 ParserState::ProcessSaplingOutputHashing => {
                     self.parse_sapling_output_hashing(ctx, &mut reader)?
+                }
+                ParserState::ProcessOrchardCompact => {
+                    self.parse_orchard_compact(ctx, &mut reader)?
+                }
+                ParserState::ProcessOrchardMemo {
+                    size,
+                    remaining_size,
+                } => self.parse_orchard_memo(ctx, &mut reader, size, remaining_size)?,
+                ParserState::ProcessOrchardNonCompact => {
+                    self.parse_orchard_noncompact(ctx, &mut reader)?
+                }
+                ParserState::ProcessOrchardHashing => {
+                    self.parse_orchard_hashing(ctx, &mut reader)?
                 }
                 ParserState::ProcessExtra => self.parse_process_extra(ctx, &mut reader)?,
                 ParserState::TransactionParsed
@@ -618,7 +644,7 @@ impl Parser {
 
     fn parse_output_hashing_done(
         &mut self,
-        _ctx: &mut ParserCtx<'_>,
+        ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
         info!("Output hashing done");
@@ -634,7 +660,10 @@ impl Parser {
         self.state = if self.sapling_spend_count > 0 || self.sapling_output_count > 0 {
             ParserState::ProcessSapling
         } else if self.orchard_action_count > 0 {
-            todo!()
+            ctx.hashers
+                .tx_compact_hasher
+                .init_with_perso(ZCASH_ORCHARD_ACTIONS_COMPACT_HASH_PERSONALIZATION);
+            ParserState::ProcessOrchardCompact
         } else {
             ParserState::ProcessExtra
         };
