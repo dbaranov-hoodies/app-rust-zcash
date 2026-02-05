@@ -60,7 +60,7 @@ use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
-    log::{self, debug},
+    log::debug,
     utils::{compress_public_key, public_key_to_address_base58},
 };
 use alloc::{format, string::ToString};
