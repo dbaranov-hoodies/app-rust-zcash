@@ -159,13 +159,12 @@ pub fn public_key_to_address_base58(
     buf[22..26].copy_from_slice(&checksum);
 
     let mut address_base58 = [0u8; TRANSPARENT_ADDRESS_B58_LEN];
-    let written = bs58::encode(&buf[..26])
+    let _written = bs58::encode(&buf[..26])
         .onto(&mut address_base58[..])
         .map_err(|_| AppSW::IncorrectData)?;
 
     //transparent addresses begin with "t" and are followed by 34 alphanumeric characters
-
-    debug_hex("address_base58", &address_base58);
+    debug!("address_base58 {:?}", &address_base58);
     Ok(address_base58)
 }
 

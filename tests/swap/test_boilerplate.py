@@ -44,8 +44,8 @@ class BoilerplateTests(ExchangeTestRunner):
     # Values we ask the ExchangeTestRunner to use in the test setup
     valid_send_amount_1 = 1000
     valid_send_amount_2 = 666
-    valid_fees_1 = 0
-    valid_fees_2 = 0
+    valid_fees_1 = 123
+    valid_fees_2 = 123
 
     # Fake addresses to test the address rejection code.
     fake_refund = "abcdabcd"

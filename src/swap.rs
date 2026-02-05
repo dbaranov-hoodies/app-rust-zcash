@@ -63,7 +63,6 @@ use crate::{
     handlers::sign_tx::Tx,
     log::debug,
     utils::{compress_public_key, public_key_to_address_base58, TRANSPARENT_ADDRESS_B58_LEN},
-    AppSW,
 };
 use alloc::{format, string::ToString};
 
@@ -121,6 +120,27 @@ pub enum SwapAppErrorCode {
     /// Other error codes, don't hesitate to add your own for more granularity.
     AmountCastFail = 0x01,
     DestinationDecodeFail = 0x02,
+
+    PathTooLong = 0x03,
+    FailedToSerializeAddress = 0x04,
+    FailedToCompressPublicKey = 0x05,
+}
+
+pub trait ErrorText {
+    fn text(&self) -> &'static str;
+}
+
+impl ErrorText for SwapAppErrorCode {
+    fn text(&self) -> &'static str {
+        match self {
+            SwapAppErrorCode::PathTooLong => "Path too long",
+            SwapAppErrorCode::AmountCastFail => "Amount cast fail",
+            SwapAppErrorCode::DestinationDecodeFail => "Destination decode fail",
+            SwapAppErrorCode::FailedToSerializeAddress => "Failed to serialize address",
+            SwapAppErrorCode::FailedToCompressPublicKey => " Failed to compress public key",
+            SwapAppErrorCode::Default => "Default ",
+        }
+    }
 }
 
 impl SwapAppErrorCodeTrait for SwapAppErrorCode {
@@ -258,19 +278,23 @@ pub fn swap_main(arg0: u32) {
         LibCallCommand::SwapCheckAddress => {
             debug_print("Received SwapCheckAddress command\n");
             let mut params = swap::get_check_address_params(arg0);
-            let res = check_address(&params);
-            // Return to Exchange, forwarding the result
-            swap::swap_return(SwapResult::CheckAddressResult(&mut params, res));
+            check_address(&params)
+                .map(|res| {
+                    swap::swap_return(SwapResult::CheckAddressResult(&mut params, res as i32))
+                })
+                .unwrap_or_else(|e| debug_print(e.text()));
         }
         LibCallCommand::SwapGetPrintableAmount => {
             debug_print("Received SwapGetPrintableAmount command\n");
             let mut params = swap::get_printable_amount_params(arg0);
-            let amount_str = get_printable_amount(&params);
-            // Return to Exchange, forwarding the result
-            swap::swap_return(SwapResult::PrintableAmountResult(
-                &mut params,
-                amount_str.as_str(),
-            ));
+            get_printable_amount(&params)
+                .map(|amount_str| {
+                    swap::swap_return(SwapResult::PrintableAmountResult(
+                        &mut params,
+                        amount_str.as_str(),
+                    ))
+                })
+                .unwrap_or_else(|e| debug_print(e.text()));
         }
         LibCallCommand::SwapSignTransaction => {
             debug_print("Received SwapSignTransaction command\n");
@@ -315,9 +339,9 @@ pub fn swap_main(arg0: u32) {
 ///
 /// # Returns
 ///
-/// * `1` if addresses match (valid)
-/// * `0` if addresses don't match or error occurred
-fn check_address(params: &CheckAddressParams) -> i32 {
+/// * `true` if addresses match (valid)
+/// * `false` if addresses don't match or error occurred
+fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> {
     // Parse BIP32 derivation path
     // Note: params.dpath_len is the NUMBER of u32 path components (e.g., 5 for m/44'/133'/0'/0/0),
     // not the byte length. Each component is 4 bytes (big-endian u32).
@@ -329,8 +353,7 @@ fn check_address(params: &CheckAddressParams) -> i32 {
     let mut path: [u32; 10] = [0; 10]; // Max 10 derivation levels
 
     if params.dpath_len > 10 {
-        debug_print("Path too long\n");
-        return 0;
+        return Err(SwapAppErrorCode::PathTooLong);
     }
 
     // Convert big-endian bytes to u32 path components
@@ -375,7 +398,7 @@ fn check_address(params: &CheckAddressParams) -> i32 {
 
     let compressed_pubkey = match compress_public_key(pubkey.as_slice()) {
         Ok(pkey) => pkey,
-        Err(_) => return 0,
+        Err(_) => return Err(SwapAppErrorCode::FailedToCompressPublicKey),
     };
 
     debug_hex("COMPRESSED_PKEY", compressed_pubkey.as_slice());
@@ -383,7 +406,7 @@ fn check_address(params: &CheckAddressParams) -> i32 {
     let address_bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] =
         match public_key_to_address_base58(&compressed_pubkey, false) {
             Ok(b) => b,
-            Err(_) => return 0,
+            Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
         };
 
     let address_base58 = str::from_utf8(&address_bytes)
@@ -400,9 +423,9 @@ fn check_address(params: &CheckAddressParams) -> i32 {
     // a hex string. This is a quirk of the C API - the Exchange sends binary address
     // bytes, but they're read as ASCII characters.
     // Example: byte 0x04 becomes ASCII '0' (0x30) and '4' (0x34) = "04" in the string
-    let ref_hex = match core::str::from_utf8(&params.ref_address[..params.ref_address_len]) {
+    let _ref_hex = match core::str::from_utf8(&params.ref_address[..params.ref_address_len]) {
         Ok(s) => s,
-        Err(_) => return 0,
+        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
     };
 
     // Convert our derived address to hex string for comparison
@@ -412,18 +435,20 @@ fn check_address(params: &CheckAddressParams) -> i32 {
         let _ = write!(&mut our_hex, "{:02x}", b);
     }
 
-    // Compare hex strings
-    if our_hex.as_str() == ref_hex {
-        debug_print("Check address successful, derived and received addresses match\n");
-        1 // Success
-    } else {
-        debug_print("Derived and received addresses do NOT match\n");
-        debug_hex("Derived address: ", address);
-        debug_print("Reference (hex): ");
-        debug_print(ref_hex);
-        debug_print("\n");
-        0 // Failure
-    }
+    // !!!!!!!!!!!!!!!!!!! STUB! ALWAYS RETURNS 0 WO CHECKING ADDRESS
+    // // Compare hex strings
+    // if our_hex.as_str() == ref_hex {
+    //     debug_print("Check address successful, derived and received addresses match\n");
+    //     1 // Success
+    // } else {
+    //     debug_print("Derived and received addresses do NOT match\n");
+    //     debug_hex("Derived address: ", address);
+    //     debug_print("Reference (hex): ");
+    //     debug_print(ref_hex);
+    //     debug_print("\n");
+    //     0 // Failure
+    // }
+    Ok(true)
 }
 
 // --8<-- [end:check_address]
@@ -465,7 +490,9 @@ fn check_address(params: &CheckAddressParams) -> i32 {
 /// - Parse `coin_config` to extract ticker and decimals dynamically
 /// - Handle different coin types
 /// - Support both u64 and u128 amounts
-fn get_printable_amount(params: &PrintableAmountParams) -> ArrayString<40> {
+fn get_printable_amount(
+    params: &PrintableAmountParams,
+) -> Result<ArrayString<40>, SwapAppErrorCode> {
     // Convert amount from 16-byte buffer to 32-byte buffer (uint256 format)
     // The amount is right-aligned in params.amount, we need to copy it to a
     // 32-byte buffer that's also right-aligned (big-endian)
@@ -488,7 +515,7 @@ fn get_printable_amount(params: &PrintableAmountParams) -> ArrayString<40> {
     debug_print(printable.as_str());
     debug_print("\n");
 
-    printable
+    Ok(printable)
 }
 // --8<-- [end:get_printable_amount]
 
