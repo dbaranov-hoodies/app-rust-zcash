@@ -44,7 +44,6 @@
 use arrayvec::ArrayString;
 use core::fmt::Write;
 use ledger_device_sdk::{
-    ecc::{Secp256k1, SeedDerive},
     hash::sha3::Keccak256,
     libcall::{
         self,
@@ -55,7 +54,7 @@ use ledger_device_sdk::{
         },
         SwapAppErrorCodeTrait,
     },
-    testing::{debug_print, to_hex},
+    testing::debug_print,
 };
 use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 
@@ -63,10 +62,8 @@ use crate::{
     consts::{ZEC_DECIMALS, ZEC_TICKER},
     handlers::sign_tx::Tx,
     log::debug,
-    utils::{
-        compress_public_key, derive_public_key, public_key_to_address_base58, Bip32Path,
-        PubKeyWithCC,
-    },
+    utils::{compress_public_key, public_key_to_address_base58, TRANSPARENT_ADDRESS_B58_LEN},
+    AppSW,
 };
 use alloc::{format, string::ToString};
 
@@ -347,12 +344,31 @@ fn check_address(params: &CheckAddressParams) -> i32 {
     }
 
     // Derive public key from path using the same logic as get_public_key handler
-    let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
-    let pubkey = match k.public_key() {
-        Ok(pk) => pk.pubkey,
-        Err(_) => {
-            debug_print("Key derivation failed\n");
-            return 0;
+
+    let pubkey = {
+        #[cfg(feature = "test_pubkey")]
+        {
+            [
+                0x04, 0x4c, 0xca, 0x8f, 0xad, 0x49, 0x6a, 0xa5, 0x04, 0x0a, 0x00, 0xa7, 0xeb, 0x2f,
+                0x5c, 0xc3, 0xb8, 0x53, 0x76, 0xd8, 0x8b, 0xa1, 0x47, 0xa7, 0xd7, 0x05, 0x4a, 0x99,
+                0xc6, 0x40, 0x56, 0x18, 0x87, 0xfe, 0x17, 0xa0, 0x96, 0xe3, 0x6c, 0x3b, 0x52, 0x3b,
+                0x24, 0x4f, 0x3e, 0x2f, 0xf7, 0xf8, 0x40, 0xae, 0x26, 0xc4, 0xe7, 0x7a, 0xd3, 0xbc,
+                0x73, 0x9a, 0xf5, 0xde, 0x6f, 0x2d, 0x77, 0xa7, 0xb6,
+            ]
+        }
+        #[cfg(not(feature = "test_pubkey"))]
+        {
+            use ledger_device_sdk::ecc::Secp256k1;
+            use ledger_device_sdk::ecc::SeedDerive;
+
+            let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
+            match k.public_key() {
+                Ok(pk) => pk.pubkey,
+                Err(_) => {
+                    debug_print("Key derivation failed\n");
+                    return 0;
+                }
+            }
         }
     };
     debug_hex("PUBLIC_KEY", pubkey.as_slice());
@@ -364,11 +380,16 @@ fn check_address(params: &CheckAddressParams) -> i32 {
 
     debug_hex("COMPRESSED_PKEY", compressed_pubkey.as_slice());
 
-    let address_str: [u8; 32] = match public_key_to_address_base58(&compressed_pubkey, false) {
-        Ok(address_str) => address_str.into_bytes().try_into().unwrap(),
-        Err(_) => return 0,
-    };
-    debug!("address_str {:?}", address_str);
+    let address_bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] =
+        match public_key_to_address_base58(&compressed_pubkey, false) {
+            Ok(b) => b,
+            Err(_) => return 0,
+        };
+
+    let address_base58 = str::from_utf8(&address_bytes)
+        .unwrap() // todo handle error
+        ;
+    debug!("address_string: {}", &address_base58);
 
     // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
     let address_hash = get_address_hash_from_pubkey(&pubkey);
