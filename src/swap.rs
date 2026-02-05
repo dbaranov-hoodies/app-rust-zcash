@@ -417,13 +417,6 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
         Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
     };
 
-    // // Convert our derived address to hex string for comparison
-    // // Using ArrayString (stack-allocated) to avoid heap allocation
-    // let mut our_hex = ArrayString::<40>::new(); // 20 bytes * 2 hex chars
-    // for b in address {
-    //     let _ = write!(&mut address, "{:02x}", b);
-    // }
-
     // Compare hex strings
     if address_base58 == ref_hex {
         debug_print("Check address successful, derived and received addresses match\n");
