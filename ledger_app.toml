@@ -13,9 +13,3 @@ testing_with_latest = [
     { url = "https://github.com/LedgerHQ/app-exchange", ref = "develop", use_case = "dbg_use_test_keys" },
     { url = "https://github.com/LedgerHQ/app-ethereum", ref = "develop", use_case = "use_test_keys" },
 ]
-
-[use_cases]
-use_test_keys = "TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1"
-dbg_use_test_keys = "DEBUG=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1"
-full_replay = "DEBUG=1 TESTING=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1 FIXED_TLV_CHALLENGE=1"
-dbg_full_replay = "DEBUG=1 TESTING=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1 FIXED_TLV_CHALLENGE=1"

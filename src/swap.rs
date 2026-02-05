@@ -60,7 +60,7 @@ use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
-    log::debug,
+    log::{debug, error, info},
     utils::{compress_public_key, public_key_to_address_base58},
 };
 use alloc::{format, string::ToString};
@@ -123,7 +123,6 @@ pub enum SwapAppErrorCode {
     PathTooLong = 0x03,
     FailedToSerializeAddress = 0x04,
     FailedToCompressPublicKey = 0x05,
-    #[allow(unused)]
     KeyDerivationFailed = 0x06,
 }
 
@@ -206,9 +205,10 @@ pub fn check_swap_params(
     }
 
     if tx.to != swap_dest {
-        debug!("Swap destination mismatch\n");
-        debug!("Tx: {:?}", &tx.to);
-        debug!("Swap: {:?}", &swap_dest);
+        error!(
+            "Swap destination mismatch\n Tx: {:?}. Swap {:?}",
+            &tx.to, &swap_dest
+        );
         // Only build hex strings for error message (not on happy path)
         let tx_hex = hex::encode(tx.to);
         let swap_hex = hex::encode(swap_dest);
@@ -219,7 +219,7 @@ pub fn check_swap_params(
         ));
     }
 
-    debug!("Swap validation success, bypassing UI\n");
+    info!("Swap validation success, bypassing UI\n");
     Ok(())
 }
 //  --8<-- [end:check_swap_params]
@@ -243,24 +243,26 @@ pub fn swap_main(arg0: u32) {
         LibCallCommand::SwapCheckAddress => {
             debug!("Received SwapCheckAddress command\n");
             let mut params = swap::get_check_address_params(arg0);
-            check_address(&params)
-                .map(|res| {
-                    swap::swap_return(SwapResult::CheckAddressResult(&mut params, res as i32))
-                })
-                .unwrap_or_else(|e| debug!("Swap error: {:?}", e));
+            let res = check_address(&params).unwrap_or_else(|e| {
+                debug!("Swap error: {:?}", e);
+                false
+            });
+            swap::swap_return(SwapResult::CheckAddressResult(&mut params, res as i32));
         }
         LibCallCommand::SwapGetPrintableAmount => {
             debug!("Received SwapGetPrintableAmount command\n");
+
             let mut params = swap::get_printable_amount_params(arg0);
-            get_printable_amount(&params)
-                .map(|amount_str| {
-                    swap::swap_return(SwapResult::PrintableAmountResult(
-                        &mut params,
-                        amount_str.as_str(),
-                    ))
-                })
-                .unwrap_or_else(|e| debug!("Swap error: {:?}", e));
+            let amount_str = get_printable_amount(&params).unwrap_or_else(|e| {
+                debug!("Swap error: {:?}", e);
+                ArrayString::new()
+            });
+            swap::swap_return(SwapResult::PrintableAmountResult(
+                &mut params,
+                amount_str.as_str(),
+            ))
         }
+
         LibCallCommand::SwapSignTransaction => {
             debug!("Received SwapSignTransaction command\n");
             let mut params = swap::sign_tx_params(arg0);
@@ -338,31 +340,22 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
         use ledger_device_sdk::ecc::SeedDerive;
 
         let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
-        match k.public_key() {
-            Ok(pk) => pk.pubkey,
-            Err(_) => {
-                return Err(SwapAppErrorCode::KeyDerivationFailed);
-            }
-        }
+        k.public_key()
+            .map_err(|_| SwapAppErrorCode::KeyDerivationFailed)?
+            .pubkey
     };
     debug!("PUBLIC_KEY {:?}", pubkey.as_slice());
 
-    let compressed_pubkey = match compress_public_key(pubkey.as_slice()) {
-        Ok(pkey) => pkey,
-        Err(_) => return Err(SwapAppErrorCode::FailedToCompressPublicKey),
-    };
+    let compressed_pubkey = compress_public_key(pubkey.as_slice())
+        .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?;
 
     debug!("COMPRESSED_PKEY {:?}", compressed_pubkey.as_slice());
 
-    let address_bytes = match public_key_to_address_base58(&compressed_pubkey, false) {
-        Ok(b) => b,
-        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
-    };
+    let address_bytes = public_key_to_address_base58(&compressed_pubkey, false)
+        .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?;
 
-    let address_base58 = match str::from_utf8(&address_bytes) {
-        Ok(addr) => addr,
-        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
-    };
+    let address_base58 =
+        str::from_utf8(&address_bytes).map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
     debug!("address_string: {}", &address_base58);
 
     // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
@@ -374,21 +367,16 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     // a hex string. This is a quirk of the C API - the Exchange sends binary address
     // bytes, but they're read as ASCII characters.
     // Example: byte 0x04 becomes ASCII '0' (0x30) and '4' (0x34) = "04" in the string
-    let ref_hex = match core::str::from_utf8(&params.ref_address[..params.ref_address_len]) {
-        Ok(s) => s,
-        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
-    };
+    let ref_hex = core::str::from_utf8(&params.ref_address[..params.ref_address_len])
+        .map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
 
     // Compare hex strings
     if address_base58 == ref_hex {
-        debug!("Check address successful, derived and received addresses match\n");
+        info!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
-        debug!("Derived and received addresses do NOT match\n");
-        debug!("Derived address: {:?}", address);
-        debug!("Reference (hex): ");
-        debug!("{:?}", ref_hex);
-        debug!("\n");
+        error!("Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n", address,ref_hex);
+
         Ok(false) // Failure
     }
 }
