@@ -88,15 +88,12 @@ const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
 const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
 
 pub fn get_address_from_public_key(public_key_hash160: &Hash160) -> Result<Base58Address, AppSW> {
-    // buffer for deriving address
-    // PREFIX(2 bytes) + HASH160 of Public_key(20 bytes)+ checksum (4 bytes)
+    // PREFIX(2) + HASH160(20)
     let mut buf = [0u8; 22];
 
-    debug!("To hash: {:02X?}", &public_key_hash160);
-    let pubkey_hash160 = hash160(public_key_hash160)?;
     buf[0] = P2PKH_PREFIX[0];
     buf[1] = P2PKH_PREFIX[1];
-    buf[2..22].copy_from_slice(&pubkey_hash160);
+    buf[2..22].copy_from_slice(public_key_hash160);
 
     p2pkh_payload_to_base58_bytes(&buf)
 }
