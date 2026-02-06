@@ -14,13 +14,13 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
-use crate::utils::{
-    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160, Bip32Path,
-    HexSlice, PubKeyWithCC,
-};
+use crate::utils::{check_bip44_compliance, HexSlice};
 use crate::AppSW;
+use crate::{
+    log::{debug, error, info},
+    utils::{bip32_path::Bip32Path, public_key::PubKeyWithCC},
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
@@ -237,15 +237,9 @@ pub fn handler_hash_input_finalize_full(
     if is_change_info {
         let path: Bip32Path = data.try_into()?;
 
-        let PubKeyWithCC {
-            public_key,
-            public_key_len,
-            ..
-        } = derive_public_key(&path)?;
-        let public_key = &public_key[..public_key_len];
-        let comp_public_key = compress_public_key(public_key)?;
+        let public_key_with_cc = PubKeyWithCC::try_from(&path)?;
 
-        ctx.tx_info.change_pk_hash = public_key_hash160(&comp_public_key)?;
+        ctx.tx_info.change_pk_hash = public_key_with_cc.public_key_hash160()?;
 
         info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 
@@ -384,7 +378,7 @@ fn compute_signature_and_append(
 
     debug!("Final TX hash: {}", HexSlice(&hash));
 
-    let (p, _chain_code) = Secp256k1::derive_from(path.as_ref());
+    let (p, _chain_code) = Secp256k1::derive_from(path.as_slice());
 
     let (mut sig, sig_len, info) = if deterministic_sign {
         p.deterministic_sign(&hash)

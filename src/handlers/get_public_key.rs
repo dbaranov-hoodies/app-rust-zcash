@@ -15,11 +15,15 @@
  *  limitations under the License.
  *****************************************************************************/
 
-use crate::app_ui::address::ui_display_pk;
-use crate::log::debug;
-use crate::utils::{
-    compress_public_key, derive_public_key, public_key_to_address_base58, Bip32Path, PubKeyWithCC,
+use crate::{
+    app_ui::address::ui_display_pk,
+    utils::{
+        base58::get_address_from_public_key, bip32_path::Bip32Path, hashers::hash160,
+        public_key::PubKeyWithCC,
+    },
 };
+use crate::{log::debug, utils::public_key};
+
 use crate::AppSW;
 use ledger_device_sdk::io::Comm;
 
@@ -45,24 +49,30 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let path: Bip32Path = data.try_into()?;
 
     debug!("path {:?}", path);
-    let PubKeyWithCC {
-        public_key,
-        public_key_len,
-        chain_code,
-    } = derive_public_key(&path)?;
-    let public_key = &public_key[..public_key_len];
+    let public_key_with_cc = PubKeyWithCC::try_from(&path)?;
+    // let PubKeyWithCC {
+    //     public_key,
+    //     public_key_len,
+    //     chain_code,
+    // } = PubKeyWithCC::try_from(&path)?;
+    let binding = public_key_with_cc.clone();
+    let public_key = binding.public_key_slice();
+
     debug!("public_key {:?}", public_key);
-    let comp_public_key = compress_public_key(public_key)?;
-    let bytes = public_key_to_address_base58(&comp_public_key, false)?;
-    debug!("bytes collected{:?}", &bytes);
-    let address_str = str::from_utf8(&bytes).map_err(|_| AppSW::ExecutionError)?;
+
+    let compressed_key = &public_key_with_cc.clone().compressed_public_key()?;
+    let h160 = hash160(compressed_key)?;
+
+    let base58_address = get_address_from_public_key(&h160)?;
+    debug!("bytes collected{:?}", &base58_address.len);
+    let address_str = str::from_utf8(&base58_address.bytes).map_err(|_| AppSW::ExecutionError)?;
     debug!("address_str {:?}", address_str);
     // Display address on device if requested
     if display && !ui_display_pk(address_str)? {
         return Err(AppSW::Deny);
     }
 
-    comm.append(&[public_key_len as u8]);
+    comm.append(&[public_key_with_cc.public_key_len as u8]);
     comm.append(public_key);
 
     debug!("Public Key: {:02X?}", public_key);
@@ -74,9 +84,9 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     debug!("Address: {}", address_str);
 
     // Don't encode chain code length, it's always 32 bytes
-    comm.append(&chain_code);
+    comm.append(&public_key_with_cc.clone().chain_code);
 
-    debug!("Chain Code: {:02X?}", chain_code);
+    debug!("Chain Code: {:02X?}", public_key_with_cc.chain_code);
 
     Ok(())
 }

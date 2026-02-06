@@ -61,7 +61,11 @@ use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
     log::{debug, error, info},
-    utils::{compress_public_key, public_key_to_address_base58},
+    utils::{
+        base58::get_address_from_public_key,
+        bip32_path::Bip32Path,
+        public_key::{self, PubKeyWithCC},
+    },
 };
 use alloc::{format, string::ToString};
 
@@ -251,7 +255,6 @@ pub fn swap_main(arg0: u32) {
         }
         LibCallCommand::SwapGetPrintableAmount => {
             debug!("Received SwapGetPrintableAmount command\n");
-
             let mut params = swap::get_printable_amount_params(arg0);
             let amount_str = get_printable_amount(&params).unwrap_or_else(|e| {
                 debug!("Swap error: {:?}", e);
@@ -316,50 +319,35 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     let path_bytes = &params.dpath[..params.dpath_len * 4];
     debug!("path bytes {:?}", path_bytes);
 
-    // Use stack-allocated array (no heap!) to store parsed path
-    let mut path: [u32; 10] = [0; 10]; // Max 10 derivation levels
+    let path = Bip32Path::try_from(params)?;
 
-    if params.dpath_len > 10 {
-        return Err(SwapAppErrorCode::PathTooLong);
-    }
+    let public_key_with_cc =
+        PubKeyWithCC::try_from(&path).map_err(|_e| SwapAppErrorCode::KeyDerivationFailed)?;
 
-    // Convert big-endian bytes to u32 path components
-    for i in 0..params.dpath_len {
-        path[i] = u32::from_be_bytes([
-            path_bytes[i * 4],
-            path_bytes[i * 4 + 1],
-            path_bytes[i * 4 + 2],
-            path_bytes[i * 4 + 3],
-        ]);
-    }
+    let public_key = public_key_with_cc.public_key;
 
-    // Derive public key from path using the same logic as get_public_key handler
+    debug!("PUBLIC_KEY {:?}", public_key.as_slice());
 
-    let pubkey = {
-        use ledger_device_sdk::ecc::Secp256k1;
-        use ledger_device_sdk::ecc::SeedDerive;
-
-        let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
-        k.public_key()
-            .map_err(|_| SwapAppErrorCode::KeyDerivationFailed)?
-            .pubkey
-    };
-    debug!("PUBLIC_KEY {:?}", pubkey.as_slice());
-
-    let compressed_pubkey = compress_public_key(pubkey.as_slice())
+    let compressed_pubkey = public_key_with_cc
+        .compressed_public_key()
         .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?;
 
     debug!("COMPRESSED_PKEY {:?}", compressed_pubkey.as_slice());
 
-    let address_bytes = public_key_to_address_base58(&compressed_pubkey, false)
-        .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?;
+    let address_bytes = get_address_from_public_key(
+        &public_key_with_cc
+            .public_key_hash160()
+            .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?,
+    )
+    .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?
+    .bytes;
 
     let address_base58 =
         str::from_utf8(&address_bytes).map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
     debug!("address_string: {}", &address_base58);
 
     // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
-    let address_hash = get_address_hash_from_pubkey(&pubkey);
+    let address_hash = get_address_hash_from_pubkey(&public_key);
     // Take last 20 bytes as address (Ethereum-style)
     let address = &address_hash[address_hash.len() - 20..];
 
