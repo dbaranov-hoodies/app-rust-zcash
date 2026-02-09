@@ -12,11 +12,12 @@ impl Write for DBG {
         // Dunno why the copy is required, might be some pic issue as this is going straight to
         // assembly.
         for c in s.chars() {
-            use ledger_device_sdk::log;
+            use ledger_device_sdk::{log, testing::debug_print};
 
             let mut qq = ArrayString::<1>::new();
             qq.push(c);
             log::debug!("{}", qq.as_str());
+            debug_print(s);
         }
         Ok(())
     }
