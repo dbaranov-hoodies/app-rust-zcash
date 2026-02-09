@@ -9,7 +9,9 @@ use zcash_primitives::transaction::{
 
 use crate::{
     log::{debug, error, info},
-    parser::{ok, ParserCtx, ParserError, ZCASH_ORCHARD_HASH_PERSONALIZATION},
+    parser::{
+        map_parse_error::MapParserError, ParserCtx, ParserError, ZCASH_ORCHARD_HASH_PERSONALIZATION,
+    },
     utils::{
         blake2b_256_pers::{AsWriter as _, Blake2b256Personalization as _},
         HexSlice,
@@ -30,21 +32,30 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
     if let Some(TxVersion::V4 | TxVersion::V5) = ctx.tx_info.tx_version {
         let prevouts_hash = {
             let mut hash = [0u8; 32];
-            ok!(ctx.hashers.prevouts_hasher.finalize(&mut hash));
+            ctx.hashers
+                .prevouts_hasher
+                .finalize(&mut hash)
+                .map_parser_error()?;
             hash
         };
         debug!("Prevouts hash: {}", HexSlice(&prevouts_hash));
 
         let sequence_hash = {
             let mut hash = [0u8; 32];
-            ok!(ctx.hashers.sequence_hasher.finalize(&mut hash));
+            ctx.hashers
+                .sequence_hasher
+                .finalize(&mut hash)
+                .map_parser_error()?;
             hash
         };
         debug!("Sequence hash: {}", HexSlice(&sequence_hash));
 
         let outputs_hash = {
             let mut hash = [0u8; 32];
-            ok!(ctx.hashers.outputs_hasher.finalize(&mut hash));
+            ctx.hashers
+                .outputs_hasher
+                .finalize(&mut hash)
+                .map_parser_error()?;
             hash
         };
         debug!("Outputs hash: {}", HexSlice(&outputs_hash));
@@ -55,14 +66,22 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             let mut hasher = Blake2b_256::default();
             hasher.init_with_perso(ZCASH_HEADERS_HASH_PERSONALIZATION);
 
-            ok!(tx_version.write(&mut hasher.as_writer()));
+            tx_version
+                .write(&mut hasher.as_writer())
+                .map_parser_error()?;
 
-            ok!(hasher.update(&u32::from(branch_id).to_le_bytes()));
+            hasher
+                .update(&u32::from(branch_id).to_le_bytes())
+                .map_parser_error()?;
 
-            ok!(hasher.update(&ctx.tx_info.locktime.to_le_bytes()));
-            ok!(hasher.update(&ctx.tx_info.expiry_height.to_le_bytes()));
+            hasher
+                .update(&ctx.tx_info.locktime.to_le_bytes())
+                .map_parser_error()?;
+            hasher
+                .update(&ctx.tx_info.expiry_height.to_le_bytes())
+                .map_parser_error()?;
 
-            ok!(hasher.finalize(&mut hash));
+            hasher.finalize(&mut hash).map_parser_error()?;
             hash
         };
         debug!("Header hash: {}", HexSlice(&header_hash));
@@ -73,25 +92,31 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             let mut hasher = Blake2b_256::default();
             hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
 
-            ok!(hasher.update(&prevouts_hash));
-            ok!(hasher.update(&sequence_hash));
-            ok!(hasher.update(&outputs_hash));
+            hasher.update(&prevouts_hash).map_parser_error()?;
+            hasher.update(&sequence_hash).map_parser_error()?;
+            hasher.update(&outputs_hash).map_parser_error()?;
 
-            ok!(hasher.finalize(&mut hash));
+            hasher.finalize(&mut hash).map_parser_error()?;
             hash
         };
         debug!("Transparent hash: {}", HexSlice(&transparent_hash));
 
         let sapling_hash = {
             let mut hash = [0u8; 32];
-            ok!(ctx.hashers.sapling_hasher.finalize(&mut hash));
+            ctx.hashers
+                .sapling_hasher
+                .finalize(&mut hash)
+                .map_parser_error()?;
             hash
         };
         debug!("Sapling hash: {}", HexSlice(&sapling_hash));
 
         let orchard_hash = {
             let mut hash = [0u8; 32];
-            ok!(ctx.hashers.orchard_hasher.finalize(&mut hash));
+            ctx.hashers
+                .orchard_hasher
+                .finalize(&mut hash)
+                .map_parser_error()?;
             hash
         };
         debug!("Orchard hash: {}", HexSlice(&orchard_hash));
@@ -103,12 +128,14 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
         let mut hasher = Blake2b_256::default();
         hasher.init_with_perso(&personalization);
 
-        ok!(hasher.update(&header_hash));
-        ok!(hasher.update(&transparent_hash));
-        ok!(hasher.update(&sapling_hash));
-        ok!(hasher.update(&orchard_hash));
+        hasher.update(&header_hash).map_parser_error()?;
+        hasher.update(&transparent_hash).map_parser_error()?;
+        hasher.update(&sapling_hash).map_parser_error()?;
+        hasher.update(&orchard_hash).map_parser_error()?;
 
-        ok!(hasher.finalize(&mut ctx.trusted_input_info.tx_id));
+        hasher
+            .finalize(&mut ctx.trusted_input_info.tx_id)
+            .map_parser_error()?;
 
         debug!(
             "Transaction ID hash: {}",
@@ -128,28 +155,28 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
 }
 
 pub fn finalize_signature_input_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
-    ok!(ctx
-        .hashers
+    ctx.hashers
         .prevouts_hasher
-        .finalize(&mut ctx.tx_info.prevouts_hash));
+        .finalize(&mut ctx.tx_info.prevouts_hash)
+        .map_parser_error()?;
     info!("prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
 
-    ok!(ctx
-        .hashers
+    ctx.hashers
         .sequence_hasher
-        .finalize(&mut ctx.tx_info.sequence_hash));
+        .finalize(&mut ctx.tx_info.sequence_hash)
+        .map_parser_error()?;
     info!("sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
 
-    ok!(ctx
-        .hashers
+    ctx.hashers
         .amounts_hasher
-        .finalize(&mut ctx.tx_info.amounts_hash));
+        .finalize(&mut ctx.tx_info.amounts_hash)
+        .map_parser_error()?;
     info!("amounts hash {}", HexSlice(&ctx.tx_info.amounts_hash));
 
-    ok!(ctx
-        .hashers
+    ctx.hashers
         .scripts_hasher
-        .finalize(&mut ctx.tx_info.scripts_hash));
+        .finalize(&mut ctx.tx_info.scripts_hash)
+        .map_parser_error()?;
     info!("scripts hash {}", HexSlice(&ctx.tx_info.scripts_hash));
 
     Ok(())
@@ -157,7 +184,10 @@ pub fn finalize_signature_input_hash(ctx: &mut ParserCtx<'_>) -> Result<(), Pars
 
 pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
     let mut txin_sig_digest = [0u8; 32];
-    ok!(ctx.hashers.prevouts_hasher.finalize(&mut txin_sig_digest));
+    ctx.hashers
+        .prevouts_hasher
+        .finalize(&mut txin_sig_digest)
+        .map_parser_error()?;
     info!("txin sig digest {}", HexSlice(&txin_sig_digest));
 
     // Compute transparent_sig_digest
@@ -167,15 +197,27 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
         let mut hasher = Blake2b_256::default();
         hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
 
-        ok!(hasher.update(&[ctx.tx_info.sighash_type]));
-        ok!(hasher.update(&ctx.tx_info.prevouts_hash));
-        ok!(hasher.update(&ctx.tx_info.amounts_hash));
-        ok!(hasher.update(&ctx.tx_info.scripts_hash));
-        ok!(hasher.update(&ctx.tx_info.sequence_hash));
-        ok!(hasher.update(&ctx.tx_info.outputs_hash));
-        ok!(hasher.update(&txin_sig_digest));
+        hasher
+            .update(&[ctx.tx_info.sighash_type])
+            .map_parser_error()?;
+        hasher
+            .update(&ctx.tx_info.prevouts_hash)
+            .map_parser_error()?;
+        hasher
+            .update(&ctx.tx_info.amounts_hash)
+            .map_parser_error()?;
+        hasher
+            .update(&ctx.tx_info.scripts_hash)
+            .map_parser_error()?;
+        hasher
+            .update(&ctx.tx_info.sequence_hash)
+            .map_parser_error()?;
+        hasher
+            .update(&ctx.tx_info.outputs_hash)
+            .map_parser_error()?;
+        hasher.update(&txin_sig_digest).map_parser_error()?;
 
-        ok!(hasher.finalize(&mut hash));
+        hasher.finalize(&mut hash).map_parser_error()?;
         hash
     };
     debug!("Transparent hash: {}", HexSlice(&transparent_digest));
@@ -186,7 +228,10 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
         ctx.hashers
             .sapling_hasher
             .init_with_perso(ZCASH_SAPLING_HASH_PERSONALIZATION);
-        ok!(ctx.hashers.sapling_hasher.finalize(&mut sapling_digest));
+        ctx.hashers
+            .sapling_hasher
+            .finalize(&mut sapling_digest)
+            .map_parser_error()?;
         sapling_digest
     };
 
@@ -196,7 +241,10 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
         ctx.hashers
             .orchard_hasher
             .init_with_perso(ZCASH_ORCHARD_HASH_PERSONALIZATION);
-        ok!(ctx.hashers.orchard_hasher.finalize(&mut orchard_digest));
+        ctx.hashers
+            .orchard_hasher
+            .finalize(&mut orchard_digest)
+            .map_parser_error()?;
         orchard_digest
     };
 
@@ -210,10 +258,12 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
     let hasher = &mut ctx.hashers.tx_full_hasher;
     hasher.init_with_perso(&personalization);
 
-    ok!(hasher.update(&ctx.tx_info.header_digest));
-    ok!(hasher.update(&transparent_digest));
-    ok!(hasher.update(&sapling_digest));
-    ok!(hasher.update(&orchard_digest));
+    hasher
+        .update(&ctx.tx_info.header_digest)
+        .map_parser_error()?;
+    hasher.update(&transparent_digest).map_parser_error()?;
+    hasher.update(&sapling_digest).map_parser_error()?;
+    hasher.update(&orchard_digest).map_parser_error()?;
 
     Ok(())
 }

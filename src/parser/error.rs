@@ -84,27 +84,27 @@ impl ParserError {
     }
 }
 
-macro_rules! _ok {
-    ($expr:expr) => {{
-        match $expr {
-            Ok(v) => Ok(v),
-            Err(e) => Err(ParserError {
-                source: e.into(),
-                file: file!(),
-                line: line!(),
-            }),
-        }?
-    }};
-    ($expr:expr, $reason:literal) => {{
-        match $expr {
-            Ok(v) => Ok(v),
-            Err(()) => Err(ParserError {
-                source: $reason.into(),
-                file: file!(),
-                line: line!(),
-            }),
-        }?
-    }};
-}
+// macro_rules! _ok {
+//     ($expr:expr) => {{
+//         match $expr {
+//             Ok(v) => Ok(v),
+//             Err(e) => Err(ParserError {
+//                 source: e.into(),
+//                 file: file!(),
+//                 line: line!(),
+//             }),
+//         }?
+//     }};
+//     ($expr:expr, $reason:literal) => {{
+//         match $expr {
+//             Ok(v) => Ok(v),
+//             Err(()) => Err(ParserError {
+//                 source: $reason.into(),
+//                 file: file!(),
+//                 line: line!(),
+//             }),
+//         }?
+//     }};
+// }
 
-pub(super) use _ok as ok;
+// pub(super) use _ok as ok;

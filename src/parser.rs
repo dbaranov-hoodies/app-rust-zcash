@@ -25,7 +25,6 @@ use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
-use crate::app_ui::sign::ui_display_tx;
 use crate::consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
 use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxOutput, TxSigningState};
 use crate::log::{debug, error, info};
@@ -38,7 +37,8 @@ use crate::utils::{
     HexSlice,
 };
 use crate::AppSW;
-use error::ok;
+use crate::{app_ui::sign::ui_display_tx, parser::map_parse_error::MapParserError};
+pub mod map_parse_error;
 
 pub use error::{ParserError, ParserSourceError};
 
@@ -243,10 +243,10 @@ impl Parser {
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        let version = ok!(TxVersion::read(&mut *reader));
+        let version = TxVersion::read(&mut *reader).map_parser_error()?;
 
-        let value = ok!(reader.read_u32_le());
-        let consensus_branch_id = ok!(BranchId::try_from(value));
+        let value = reader.read_u32_le().map_parser_error()?;
+        let consensus_branch_id = BranchId::try_from(value).map_parser_error()?;
 
         info!(
             "Transaction version: {:?}, consensus branch id: {:?}",
@@ -255,7 +255,7 @@ impl Parser {
         ctx.tx_info.tx_version = Some(version);
         ctx.tx_info.branch_id = Some(consensus_branch_id);
 
-        let input_count: usize = ok!(CompactSize::read_t(&mut *reader));
+        let input_count = CompactSize::read_t(&mut *reader).map_parser_error()?;
         info!("Input count: {}", input_count);
 
         // In case of Signature mode, continue computing Tx hash from previous state
@@ -270,13 +270,23 @@ impl Parser {
             let full_hasher = &mut ctx.hashers.tx_full_hasher;
             full_hasher.init_with_perso(ZCASH_HEADERS_HASH_PERSONALIZATION);
 
-            ok!(version.write(&mut full_hasher.as_writer()));
-            ok!(full_hasher.update(&u32::from(consensus_branch_id).to_le_bytes()));
-            ok!(full_hasher.update(&ctx.tx_info.locktime.to_le_bytes()));
-            ok!(full_hasher.update(&ctx.tx_info.expiry_height.to_le_bytes()));
+            version
+                .write(&mut full_hasher.as_writer())
+                .map_parser_error()?;
+            full_hasher
+                .update(&u32::from(consensus_branch_id).to_le_bytes())
+                .map_parser_error()?;
+            full_hasher
+                .update(&ctx.tx_info.locktime.to_le_bytes())
+                .map_parser_error()?;
+            full_hasher
+                .update(&ctx.tx_info.expiry_height.to_le_bytes())
+                .map_parser_error()?;
 
             // Save header_digest
-            ok!(full_hasher.finalize(&mut ctx.tx_info.header_digest));
+            full_hasher
+                .finalize(&mut ctx.tx_info.header_digest)
+                .map_parser_error()?;
 
             info!("NU5 header digest {}", HexSlice(&ctx.tx_info.header_digest));
 
@@ -326,11 +336,13 @@ impl Parser {
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        let prevout = ok!(OutPoint::read(&mut *reader));
+        let prevout = OutPoint::read(&mut *reader).map_parser_error()?;
 
-        ok!(prevout.write(ctx.hashers.prevouts_hasher.as_writer()));
+        prevout
+            .write(ctx.hashers.prevouts_hasher.as_writer())
+            .map_parser_error()?;
 
-        let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
+        let script_size: usize = CompactSize::read_t(&mut *reader).map_parser_error()?;
 
         if script_size > MAX_SCRIPT_SIZE {
             return Err(ParserError::from_str("Bad input script size"));
@@ -357,13 +369,13 @@ impl Parser {
     ) -> Result<(), ParserError> {
         debug!("Parsing input for signature mode...");
 
-        let trusted_input_mode = ok!(reader.read_u8());
+        let trusted_input_mode = reader.read_u8().map_parser_error()?;
         if trusted_input_mode != 0x01 {
             error!("Unsupported trusted input mode: {}", trusted_input_mode);
             return Err(ParserError::from_str("Unsupported trusted input mode"));
         }
 
-        let trusted_input_len = ok!(reader.read_u8()) as usize;
+        let trusted_input_len = reader.read_u8().map_parser_error()? as usize;
         if trusted_input_len != TRUSTED_INPUT_TOTAL_SIZE {
             return Err(ParserError::from_str("Invalid trusted input size"));
         }
@@ -383,8 +395,12 @@ impl Parser {
                 .ok_or_else(|| ParserError::from_str("Trusted input key not set"))?,
         );
 
-        ok!(hmac_sha256_signer.update(&trusted_input[0..trusted_input_len - 8]));
-        ok!(hmac_sha256_signer.finalize(&mut computed_hmac));
+        hmac_sha256_signer
+            .update(&trusted_input[0..trusted_input_len - 8])
+            .map_parser_error()?;
+        hmac_sha256_signer
+            .finalize(&mut computed_hmac)
+            .map_parser_error()?;
 
         info!(
             "=====> Computed trusted input HMAC: {}",
@@ -401,44 +417,39 @@ impl Parser {
         info!("HMACs matched");
 
         // Advance reader position
-        ok!({
-            let mut _magic = [0u8; 2];
-            reader.read_exact(&mut _magic)
-        });
 
-        ok!({
-            let mut _rand_bytes = [0u8; 2];
-            reader.read_exact(&mut _rand_bytes)
-        });
+        let mut _magic = [0u8; 2];
+        reader.read_exact(&mut _magic).map_parser_error()?;
 
-        let prevout = ok!(OutPoint::read(&mut *reader));
+        let mut _rand_bytes = [0u8; 2];
+        reader.read_exact(&mut _rand_bytes).map_parser_error()?;
+
+        let prevout = OutPoint::read(&mut *reader).map_parser_error()?;
         info!("Previous outpoint: {:?}", prevout);
-        ok!(prevout.write(ctx.hashers.prevouts_hasher.as_writer()));
+        prevout
+            .write(ctx.hashers.prevouts_hasher.as_writer())
+            .map_parser_error()?;
 
-        let amount = ok!({
-            let mut tmp = [0u8; 8];
-            ok!(reader.read_exact(&mut tmp));
-            // Hash amount
-            ok!(ctx.hashers.amounts_hasher.update(&tmp));
-            Zatoshis::from_nonnegative_i64_le_bytes(tmp)
-        });
+        let mut tmp = [0u8; 8];
+        reader.read_exact(&mut tmp).map_parser_error()?;
+        // Hash amount
+        ctx.hashers.amounts_hasher.update(&tmp).map_parser_error()?;
+        let amount = Zatoshis::from_nonnegative_i64_le_bytes(tmp).map_parser_error()?;
         ctx.tx_info.total_amount = ctx.tx_info.total_amount.saturating_add(amount.into_u64());
         info!("Input amount: {:?}", amount);
         info!("New amount: {}", ctx.tx_info.total_amount);
 
-        ok!({
-            let mut _hmac = [0u8; 8];
-            reader.read_exact(&mut _hmac)
-        });
+        let mut _hmac = [0u8; 8];
+        reader.read_exact(&mut _hmac).map_parser_error()?;
 
-        let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
+        let script_size = CompactSize::read_t(&mut *reader).map_parser_error()?;
         info!("Script size: {}", script_size);
 
         if ctx.tx_state.is_tx_parsed_once {
-            ok!(ctx
-                .hashers
+            ctx.hashers
                 .prevouts_hasher
-                .update(&amount.to_i64_le_bytes()));
+                .update(&amount.to_i64_le_bytes())
+                .map_parser_error()?;
         }
 
         self.state = ParserState::ProcessInputScript {
@@ -461,7 +472,9 @@ impl Parser {
     ) -> Result<(), ParserError> {
         let new_remaining_size = {
             let offset = size - remaining_size;
-            let len = ok!(reader.read(&mut self.script_bytes[offset..][..remaining_size]));
+            let len = reader
+                .read(&mut self.script_bytes[offset..][..remaining_size])
+                .map_parser_error()?;
 
             remaining_size.saturating_sub(len)
         };
@@ -485,22 +498,32 @@ impl Parser {
         let mut script_sig = Script::default();
         // NOTE: take/deallocate self.script_bytes here
         script_sig.0 .0 = mem::take(&mut self.script_bytes);
-        ok!(script_sig.write(ctx.hashers.scripts_hasher.as_writer()));
+        script_sig
+            .write(ctx.hashers.scripts_hasher.as_writer())
+            .map_parser_error()?;
 
         info!("Script sig: {:?}", script_sig);
 
         let sequence = {
             let mut sequence = [0; 4];
-            ok!(reader.read_exact(&mut sequence));
+            reader.read_exact(&mut sequence).map_parser_error()?;
             u32::from_le_bytes(sequence)
         };
         info!("Sequence: {:X?}", sequence);
 
-        ok!(ctx.hashers.sequence_hasher.update(&sequence.to_le_bytes()));
+        ctx.hashers
+            .sequence_hasher
+            .update(&sequence.to_le_bytes())
+            .map_parser_error()?;
 
         if ctx.tx_state.is_tx_parsed_once {
-            ok!(script_sig.write(ctx.hashers.prevouts_hasher.as_writer()));
-            ok!(ctx.hashers.prevouts_hasher.update(&sequence.to_le_bytes()));
+            script_sig
+                .write(ctx.hashers.prevouts_hasher.as_writer())
+                .map_parser_error()?;
+            ctx.hashers
+                .prevouts_hasher
+                .update(&sequence.to_le_bytes())
+                .map_parser_error()?;
         }
 
         self.input_parsed_count = self.input_parsed_count.saturating_add(1);
@@ -519,7 +542,7 @@ impl Parser {
                     self.state = ParserState::TransactionPresignReady;
 
                     // Skip traling bytes if any
-                    ok!(reader.advance(reader.remaining_len()));
+                    reader.advance(reader.remaining_len()).map_parser_error()?;
                 }
 
                 return Ok(());
@@ -540,7 +563,7 @@ impl Parser {
         _ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        let output_count: usize = ok!(CompactSize::read_t(&mut *reader));
+        let output_count = CompactSize::read_t(&mut *reader).map_parser_error()?;
         info!("Output count: {}", output_count);
 
         self.output_count = output_count;
@@ -554,11 +577,12 @@ impl Parser {
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        let amount = ok!({
+        let amount = {
             let mut tmp = [0u8; 8];
-            ok!(reader.read_exact(&mut tmp));
+            reader.read_exact(&mut tmp).map_parser_error()?;
             Zatoshis::from_nonnegative_i64_le_bytes(tmp)
-        });
+        }
+        .map_parser_error()?;
 
         if ctx
             .trusted_input_info
@@ -573,8 +597,11 @@ impl Parser {
             );
         }
 
-        ok!(ctx.hashers.outputs_hasher.update(&amount.to_i64_le_bytes()));
-        let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
+        ctx.hashers
+            .outputs_hasher
+            .update(&amount.to_i64_le_bytes())
+            .map_parser_error()?;
+        let script_size: usize = CompactSize::read_t(&mut *reader).map_parser_error()?;
 
         if script_size > MAX_SCRIPT_SIZE {
             return Err(ParserError::from_str("Bad output script size"));
@@ -602,7 +629,9 @@ impl Parser {
     ) -> Result<(), ParserError> {
         let new_remaining_size = {
             let offset = size - remaining_size;
-            let len = ok!(reader.read(&mut self.script_bytes[offset..][..remaining_size]));
+            let len = reader
+                .read(&mut self.script_bytes[offset..][..remaining_size])
+                .map_parser_error()?;
 
             remaining_size.saturating_sub(len)
         };
@@ -626,7 +655,9 @@ impl Parser {
         let mut script_pubkey = Script::default();
         // NOTE: take/deallocate self.script_bytes here
         script_pubkey.0 .0 = mem::take(&mut self.script_bytes);
-        ok!(script_pubkey.write(&mut ctx.hashers.outputs_hasher.as_writer()));
+        script_pubkey
+            .write(&mut ctx.hashers.outputs_hasher.as_writer())
+            .map_parser_error()?;
 
         info!("Output script pubkey: {:?}", script_pubkey);
 
@@ -649,9 +680,9 @@ impl Parser {
     ) -> Result<(), ParserError> {
         info!("Output hashing done");
 
-        self.sapling_spend_count = ok!(CompactSize::read_t(&mut *reader));
-        self.sapling_output_count = ok!(CompactSize::read_t(&mut *reader));
-        self.orchard_action_count = ok!(CompactSize::read_t(&mut *reader));
+        self.sapling_spend_count = CompactSize::read_t(&mut *reader).map_parser_error()?;
+        self.sapling_output_count = CompactSize::read_t(&mut *reader).map_parser_error()?;
+        self.orchard_action_count = CompactSize::read_t(&mut *reader).map_parser_error()?;
 
         info!("Sapling spend remaining: {}", self.sapling_spend_count);
         info!("Sapling output count: {}", self.sapling_output_count);
@@ -678,11 +709,11 @@ impl Parser {
     ) -> Result<(), ParserError> {
         info!("Processing extra data...");
 
-        ctx.tx_info.locktime = ok!(reader.read_u32_le());
+        ctx.tx_info.locktime = reader.read_u32_le().map_parser_error()?;
 
         info!("Locktime: {:X?}", ctx.tx_info.locktime);
 
-        let extra_data_len = ok!(reader.read_u8());
+        let extra_data_len = reader.read_u8().map_parser_error()?;
         if let Some(TxVersion::V5) = ctx.tx_info.tx_version {
             if extra_data_len != 4 {
                 error!(
@@ -695,7 +726,7 @@ impl Parser {
             }
         }
 
-        ctx.tx_info.expiry_height = ok!(reader.read_u32_le());
+        ctx.tx_info.expiry_height = reader.read_u32_le().map_parser_error()?;
         info!("Expiry height: {:X?}", ctx.tx_info.expiry_height);
 
         ctx.trusted_input_info.is_input_processed = true;
@@ -753,7 +784,7 @@ impl OutputParser {
 
             match &self.state {
                 OutputParseState::ParsingNumberOfOutputs => {
-                    let output_count: usize = ok!(CompactSize::read_t(&mut reader));
+                    let output_count = CompactSize::read_t(&mut reader).map_parser_error()?;
                     info!("Output count: {}", output_count);
 
                     if output_count > MAX_OUTPUTS_NUMBER {
@@ -768,22 +799,25 @@ impl OutputParser {
                     self.state = OutputParseState::ParsingOutput;
                 }
                 OutputParseState::ParsingOutput => {
-                    let amount: Zatoshis = ok!({
+                    let amount: Zatoshis = {
                         let mut tmp = [0u8; 8];
-                        ok!(reader.read_exact(&mut tmp));
-                        Zatoshis::from_nonnegative_i64_le_bytes(tmp)
-                    });
+                        reader.read_exact(&mut tmp).map_parser_error()?;
+                        Zatoshis::from_nonnegative_i64_le_bytes(tmp).map_parser_error()?
+                    };
 
                     info!("Output amount: {:?}", amount);
 
-                    ok!(ctx.hashers.outputs_hasher.update(&amount.to_i64_le_bytes()));
+                    ctx.hashers
+                        .outputs_hasher
+                        .update(&amount.to_i64_le_bytes())
+                        .map_parser_error()?;
 
                     self.current_output_amount = amount.into_u64();
                     self.total_output_amount = self
                         .total_output_amount
                         .saturating_add(self.current_output_amount);
 
-                    let script_size: usize = ok!(CompactSize::read_t(&mut reader));
+                    let script_size = CompactSize::read_t(&mut reader).map_parser_error()?;
 
                     if script_size > MAX_SCRIPT_SIZE {
                         return Err(ParserError::from_str("Bad output script size"));
@@ -806,8 +840,9 @@ impl OutputParser {
                 } => {
                     let new_remaining_size = {
                         let offset = size - remaining_size;
-                        let len =
-                            ok!(reader.read(&mut self.script_bytes[offset..][..*remaining_size]));
+                        let len = reader
+                            .read(&mut self.script_bytes[offset..][..*remaining_size])
+                            .map_parser_error()?;
 
                         remaining_size.saturating_sub(len)
                     };
@@ -827,7 +862,9 @@ impl OutputParser {
                     let mut script = Script::default();
                     // NOTE: take/deallocate self.script_bytes here
                     script.0 .0 = mem::take(&mut self.script_bytes);
-                    ok!(script.write(ctx.hashers.outputs_hasher.as_writer()));
+                    script
+                        .write(ctx.hashers.outputs_hasher.as_writer())
+                        .map_parser_error()?;
 
                     if let output @ (CheckDispOutput::Change | CheckDispOutput::Displayable) =
                         check_output_displayable(
@@ -843,7 +880,8 @@ impl OutputParser {
                             return Err(ParserError::from_str("Multiple change outputs detected"));
                         }
 
-                        let address = ok!(get_address_from_output_script(&script.0 .0));
+                        let address =
+                            get_address_from_output_script(&script.0 .0).map_parser_error()?;
 
                         ctx.tx_info.outputs.push(TxOutput {
                             amount: self.current_output_amount,
@@ -861,22 +899,23 @@ impl OutputParser {
                     if self.output_count == self.output_parsed_count {
                         info!("All outputs parsed");
 
-                        let fees = ok!(ctx
+                        let fees = ctx
                             .tx_info
                             .total_amount
                             .checked_sub(self.total_output_amount)
                             .ok_or(AppSW::IncorrectData)
-                            .inspect_err(|_| error!("Failed to calculate fees")));
+                            .inspect_err(|_| error!("Failed to calculate fees"))
+                            .map_parser_error()?;
 
-                        if !ok!(ui_display_tx(&ctx.tx_info.outputs, fees)) {
+                        if !ui_display_tx(&ctx.tx_info.outputs, fees).map_parser_error()? {
                             return Err(ParserError::user());
                         }
                         info!("All outputs reviewed");
 
-                        ok!(ctx
-                            .hashers
+                        ctx.hashers
                             .outputs_hasher
-                            .finalize(&mut ctx.tx_info.outputs_hash));
+                            .finalize(&mut ctx.tx_info.outputs_hash)
+                            .map_parser_error()?;
 
                         info!("Outputs hash: {}", HexSlice(&ctx.tx_info.outputs_hash));
 
