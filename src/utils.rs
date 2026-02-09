@@ -164,38 +164,6 @@ pub fn check_output_displayable(
     CheckDispOutput::Displayable
 }
 
-// pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
-//     const COIN_P2PKH_VERSION: u16 = 7352;
-//     const ADDRESS_OFFSET: usize = 3;
-//     const VERSION_SIZE: usize = 2;
-//     const ADDRESS_SIZE: usize = 22;
-
-//     if output_script_is_op_return(script) {
-//         error!("Unsupported OP_RETURN script");
-//         return Err(AppSW::IncorrectData);
-//     }
-
-//     if !output_script_is_regular(script) {
-//         error!("Unsupported script type");
-//         return Err(AppSW::IncorrectData);
-//     }
-
-//     let mut address = [0u8; ADDRESS_SIZE];
-//     let version = COIN_P2PKH_VERSION.to_be_bytes();
-
-//     address[..VERSION_SIZE].copy_from_slice(&version);
-//     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
-
-//     let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
-//     debug!("address_bytes: {}", HesSlice(&bytes));
-//     let address_base58 = str::from_utf8(&bytes)
-//         .map_err(|_| AppSW::ExecutionError)?
-//         .into();
-//     debug!("address_string: {}", &address_base58);
-
-//     Ok(address_base58)
-// }
-
 pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
     const BIP44_PATH_LEN: usize = 5;
     const BIP44_PURPOSE_OFFSET: usize = 0;
