@@ -4,7 +4,7 @@ pub type Base58Address = ArrayString<TRANSPARENT_ADDRESS_B58_LEN>;
 
 use crate::{
     utils::{
-        hashers::{double_sha256_checksum4, Hash160},
+        hashers::{sha256_checksum, Hash160},
         output_script_is_op_return, output_script_is_regular,
     },
     AppSW,
@@ -51,7 +51,7 @@ impl ToBase58Address for ArrayString<TRANSPARENT_ADDRESS_B58_LEN> {
         buf[..22].copy_from_slice(payload);
 
         // checksum
-        let checksum = double_sha256_checksum4(&buf[..22]);
+        let checksum = sha256_checksum(&buf[..22]);
         buf[22..26].copy_from_slice(&checksum);
 
         // base58 → ArrayString

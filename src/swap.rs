@@ -314,7 +314,7 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     let path_bytes = &params.dpath[..params.dpath_len * 4];
     debug!("path bytes {:?}", path_bytes);
 
-    let bip32_path = Bip32Path::from_dpath(params.dpath_len, &params.dpath)
+    let bip32_path = Bip32Path::from_dpath(params.dpath_len, &params.dpath[..params.dpath_len * 4])
         .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
 
     let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)

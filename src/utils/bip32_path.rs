@@ -16,15 +16,18 @@ impl Bip32Path {
     pub fn as_slice(&self) -> &[u32] {
         &self.path[..self.path_len as usize]
     }
-
     pub fn from_dpath(dpath_len: usize, dpath: &[u8]) -> Result<Self, AppSW> {
-        if dpath_len * 4 != dpath.len() {
+        // Проверяем, что байтов достаточно
+        if dpath.len() < dpath_len * 4 {
             return Err(AppSW::WrongApduLength);
         }
 
         let mut path = [0u32; MAX_ZCASH_BIP32_PATH];
-        for (i, chunk) in dpath.chunks(4).enumerate() {
-            path[i] = u32::from_be_bytes(chunk.try_into().unwrap());
+
+        let (chunks, _) = dpath[..dpath_len * 4].as_chunks::<4>();
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            path[i] = u32::from_be_bytes(*chunk);
         }
 
         Ok(Bip32Path {
@@ -57,19 +60,27 @@ impl TryFrom<&[u8]> for Bip32Path {
     /// but CANNOT be used in swap's `check_address` or `get_printable_amount` due to
     /// BSS memory sharing with the Exchange app.
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        // Check data length
-        if data.is_empty() // At least the length byte is required
-            || (data[0] as usize * 4 != data.len() - 1)
-        {
+        if data.is_empty() {
             return Err(AppSW::WrongApduLength);
         }
-        let path_len = data[0];
 
-        let mut path = [0; MAX_ZCASH_BIP32_PATH];
-        for (i, chunk) in data[1..].chunks(4).enumerate() {
-            path[i] = u32::from_be_bytes(chunk.try_into().unwrap());
+        let path_len = data[0] as usize;
+        let body = &data[1..];
+
+        if body.len() != path_len * 4 {
+            return Err(AppSW::WrongApduLength);
         }
 
-        Ok(Bip32Path { path, path_len })
+        let (chunks, _) = body.as_chunks::<4>();
+
+        let mut path = [0u32; MAX_ZCASH_BIP32_PATH];
+        for (i, chunk) in chunks.iter().enumerate() {
+            path[i] = u32::from_be_bytes(*chunk);
+        }
+
+        Ok(Bip32Path {
+            path,
+            path_len: path_len as u8,
+        })
     }
 }

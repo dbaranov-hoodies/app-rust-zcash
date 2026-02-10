@@ -31,7 +31,7 @@ impl ToHash160 for [u8] {
     }
 }
 
-pub fn double_sha256_checksum4(input: &[u8]) -> [u8; 4] {
+pub fn sha256_checksum(input: &[u8]) -> [u8; 4] {
     use ledger_device_sdk::hash::{sha2::Sha2_256, HashInit};
 
     let mut h1 = Sha2_256::new();
