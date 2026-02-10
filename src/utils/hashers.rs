@@ -1,6 +1,6 @@
 use ledger_device_sdk::hash::{ripemd::Ripemd160, sha2::Sha2_256, HashInit};
 
-use crate::{log::debug, AppSW};
+use crate::{log::debug, utils::HexSlice, AppSW};
 
 pub type Hash160 = [u8; 20];
 
@@ -24,9 +24,23 @@ impl ToHash160 for [u8] {
             .hash(&sha256_output, &mut ripemd160_output)
             .map_err(|_| AppSW::IncorrectData)?;
 
-        debug!("PubKey SHA256: {:02X?}", &sha256_output);
-        debug!("PubKey HASH160: {:02X?}", &ripemd160_output);
+        debug!("PubKey SHA256: {}", HexSlice(&sha256_output));
+        debug!("PubKey HASH160: {}", HexSlice(&ripemd160_output));
 
         Ok(ripemd160_output)
     }
+}
+
+pub fn double_sha256_checksum4(input: &[u8]) -> [u8; 4] {
+    use ledger_device_sdk::hash::{sha2::Sha2_256, HashInit};
+
+    let mut h1 = Sha2_256::new();
+    let mut o1 = [0u8; 32];
+    h1.hash(input, &mut o1).unwrap();
+
+    let mut h2 = Sha2_256::new();
+    let mut o2 = [0u8; 32];
+    h2.hash(&o1, &mut o2).unwrap();
+
+    [o2[0], o2[1], o2[2], o2[3]]
 }

@@ -59,7 +59,8 @@ use crate::{
     handlers::sign_tx::Tx,
     log::{debug, error, info},
     utils::{
-        base58_address::Base58Address, bip32_path::Bip32Path,
+        base58_address::{Base58Address, ToBase58Address},
+        bip32_path::Bip32Path,
         extended_public_key::ExtendedPublicKey,
     },
 };
@@ -120,7 +121,6 @@ pub enum SwapAppErrorCode {
     AmountCastFail = 0x01,
     DestinationDecodeFail = 0x02,
 
-    PathTooLong = 0x03,
     FailedToSerializeAddress = 0x04,
     FailedToDeriveAddress = 0x05,
 }
@@ -314,7 +314,8 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     let path_bytes = &params.dpath[..params.dpath_len * 4];
     debug!("path bytes {:?}", path_bytes);
 
-    let bip32_path = Bip32Path::try_from(params)?;
+    let bip32_path = Bip32Path::from_dpath(params.dpath_len, &params.dpath)
+        .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
 
     let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)
         .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
@@ -323,21 +324,18 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
         .compressed_public_key_hash160()
         .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
     let base58_address = Base58Address::from_public_key_hash(compressed_key_hash)
-        .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
-    debug!("bytes collected{:?}", &base58_address.len);
+        .map_err(|_e: crate::AppSW| SwapAppErrorCode::FailedToDeriveAddress)?;
 
-    let ref_hex = core::str::from_utf8(&params.ref_address[..params.ref_address_len])
+    let received_address = core::str::from_utf8(&params.ref_address[..params.ref_address_len])
         .map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
 
     // Compare hex strings
-    let address = base58_address
-        .as_str()
-        .map_err(|_e| SwapAppErrorCode::FailedToSerializeAddress)?;
-    if address == ref_hex {
+    let derived_address = base58_address.as_str();
+    if derived_address == received_address {
         info!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
-        error!("Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n", address,ref_hex);
+        error!("Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n", derived_address,received_address);
 
         Ok(false) // Failure
     }

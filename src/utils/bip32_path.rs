@@ -1,6 +1,4 @@
-use ledger_device_sdk::libcall::swap::CheckAddressParams;
-
-use crate::{swap::SwapAppErrorCode, AppSW};
+use crate::AppSW;
 
 pub const MAX_ZCASH_BIP32_PATH: usize = 10;
 
@@ -18,37 +16,21 @@ impl Bip32Path {
     pub fn as_slice(&self) -> &[u32] {
         &self.path[..self.path_len as usize]
     }
-}
-impl<
-        const COIN_CONFIG_BUF_SIZE: usize,
-        const ADDRESS_BUF_SIZE: usize,
-        const IDADDRESS_EXTRA_ID_BUF_SIZE: usize,
-    >
-    TryFrom<
-        &CheckAddressParams<COIN_CONFIG_BUF_SIZE, ADDRESS_BUF_SIZE, IDADDRESS_EXTRA_ID_BUF_SIZE>,
-    > for Bip32Path
-{
-    type Error = SwapAppErrorCode;
-    fn try_from(
-        value: &CheckAddressParams<
-            COIN_CONFIG_BUF_SIZE,
-            ADDRESS_BUF_SIZE,
-            IDADDRESS_EXTRA_ID_BUF_SIZE,
-        >,
-    ) -> Result<Self, Self::Error> {
-        let path_len = value.dpath_len as u8;
 
-        if value.dpath_len > MAX_ZCASH_BIP32_PATH {
-            return Err(SwapAppErrorCode::PathTooLong);
+    pub fn from_dpath(dpath_len: usize, dpath: &[u8]) -> Result<Self, AppSW> {
+        if dpath_len * 4 != dpath.len() {
+            return Err(AppSW::WrongApduLength);
         }
 
         let mut path = [0u32; MAX_ZCASH_BIP32_PATH];
-
-        for (dst, chunk) in path.iter_mut().zip(value.dpath.chunks_exact(4)) {
-            *dst = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (i, chunk) in dpath.chunks(4).enumerate() {
+            path[i] = u32::from_be_bytes(chunk.try_into().unwrap());
         }
 
-        Ok(Bip32Path { path, path_len })
+        Ok(Bip32Path {
+            path,
+            path_len: dpath_len as u8,
+        })
     }
 }
 

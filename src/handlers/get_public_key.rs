@@ -17,11 +17,15 @@
 
 use crate::{
     app_ui::address::ui_display_pk,
-    utils::{base58_address::Base58Address, extended_public_key::ExtendedPublicKey},
+    utils::{
+        base58_address::{ToBase58Address, TRANSPARENT_ADDRESS_B58_LEN},
+        extended_public_key::ExtendedPublicKey,
+    },
 };
 use crate::{log::debug, utils::hashers::ToHash160};
 
 use crate::AppSW;
+use arrayvec::ArrayString;
 use ledger_device_sdk::io::Comm;
 
 /// Handler for GET_PUBLIC_KEY APDU command.
@@ -52,10 +56,13 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)?;
 
     let compressed_key_hash = &extended_public_key.compressed_public_key()?.hash160()?;
-    let base58_address = Base58Address::from_public_key_hash(compressed_key_hash)?;
-    debug!("bytes collected{:?}", &base58_address.len);
+    let base58_address =
+        <ArrayString<TRANSPARENT_ADDRESS_B58_LEN> as ToBase58Address>::from_public_key_hash(
+            compressed_key_hash,
+        )?;
+    debug!("bytes collected{:?}", &base58_address.len());
 
-    let address_str = base58_address.as_str()?;
+    let address_str = base58_address.as_str();
     debug!("address_str {:?}", address_str);
 
     // Display address on device if requested
