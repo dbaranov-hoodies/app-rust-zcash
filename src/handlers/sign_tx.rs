@@ -14,22 +14,20 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::utils::{check_bip44_compliance, HexSlice};
+use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
+use crate::utils::check_bip44_compliance;
+use crate::utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey};
 use crate::AppSW;
-use crate::{
-    log::{debug, error, info},
-    utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey},
-};
-use crate::{
-    parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError},
-    utils::hashers::ToHash160,
-};
 use alloc::string::String;
 use alloc::vec::Vec;
-use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
+use ledger_device_sdk::{
+    debug,
+    ecc::{Secp256k1, SeedDerive as _},
+    error, info,
+};
 
 use ledger_device_sdk::libcall::swap::CreateTxParams;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
@@ -242,7 +240,7 @@ pub fn handler_hash_input_finalize_full(
 
         let public_key_with_cc = ExtendedPublicKey::try_from(&path)?;
 
-        ctx.tx_info.change_pk_hash = public_key_with_cc.hash160()?;
+        ctx.tx_info.change_pk_hash = public_key_with_cc.compressed_public_key_hash160()?;
 
         info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 

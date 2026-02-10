@@ -20,7 +20,11 @@ impl ExtendedPublicKey {
         &self.public_key[..self.public_key_len]
     }
 
-    pub fn compressed_public_key(&self) -> Result<CompressedPublicKey, AppSW> {
+    pub fn compressed_public_key_hash160(&self) -> Result<Hash160, AppSW> {
+        self.compressed_public_key()?.hash160()
+    }
+
+    fn compressed_public_key(&self) -> Result<CompressedPublicKey, AppSW> {
         let public_key = self.public_key_slice();
         if public_key.len() != 65 {
             return Err(AppSW::IncorrectData);
@@ -29,9 +33,6 @@ impl ExtendedPublicKey {
         compressed_pk[0] = if public_key[64] & 1 == 1 { 0x03 } else { 0x02 };
         compressed_pk[1..33].copy_from_slice(&public_key[1..33]);
         Ok(compressed_pk)
-    }
-    pub fn compressed_public_key_hash160(&self) -> Result<Hash160, AppSW> {
-        self.compressed_public_key()?.hash160()
     }
 }
 

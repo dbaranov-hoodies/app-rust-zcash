@@ -15,6 +15,7 @@
  *  limitations under the License.
  *****************************************************************************/
 
+use crate::log::debug;
 use crate::{
     app_ui::address::ui_display_pk,
     utils::{
@@ -22,7 +23,6 @@ use crate::{
         extended_public_key::ExtendedPublicKey,
     },
 };
-use crate::{log::debug, utils::hashers::ToHash160};
 
 use crate::AppSW;
 use ledger_device_sdk::io::Comm;
@@ -54,7 +54,7 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
 
     let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)?;
 
-    let compressed_key_hash = &extended_public_key.compressed_public_key()?.hash160()?;
+    let compressed_key_hash = &extended_public_key.compressed_public_key_hash160()?;
     let base58_address = Base58Address::from_public_key_hash(compressed_key_hash)?;
     debug!("bytes collected{:?}", &base58_address.len());
 

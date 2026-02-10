@@ -17,7 +17,6 @@ impl Bip32Path {
         &self.path[..self.path_len as usize]
     }
     pub fn from_dpath(dpath_len: usize, dpath: &[u8]) -> Result<Self, AppSW> {
-        // Проверяем, что байтов достаточно
         if dpath.len() < dpath_len * 4 {
             return Err(AppSW::WrongApduLength);
         }

@@ -311,8 +311,6 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     // Note: params.dpath_len is the NUMBER of u32 path components (e.g., 5 for m/44'/133'/0'/0/0),
     // not the byte length. Each component is 4 bytes (big-endian u32).
     debug!("ENTERED_CHECK_ADDRESS\n");
-    let path_bytes = &params.dpath[..params.dpath_len * 4];
-    debug!("path bytes {:?}", path_bytes);
 
     let bip32_path = Bip32Path::from_dpath(params.dpath_len, &params.dpath[..params.dpath_len * 4])
         .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
