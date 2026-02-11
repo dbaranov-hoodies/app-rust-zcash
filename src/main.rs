@@ -267,7 +267,7 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
         debug!("App started");
     }
 
-    let mut tx_ctx = TxContext::new(swap_params);
+    let mut tx_ctx = TxContext::new(swap_params, Default::default());
 
     debug!("TxContext size {} bytes", mem::size_of_val(&tx_ctx));
 
@@ -294,7 +294,7 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
         show_status_and_home_if_needed(&ins, &mut tx_ctx, &status);
 
         // In swap mode, exit after transaction is finished (signed or rejected)
-        if tx_ctx.swap_params.is_some() && tx_ctx.is_finished() {
+        if tx_ctx.swap_params.is_some() && tx_ctx.is_signing_finished() {
             return status == AppSW::Ok;
         }
     }

@@ -42,16 +42,17 @@ opt-level = 'z'
 lto = 'fat'
 
 [features]
-default = [
-    "ledger_device_sdk/nano_nbgl",
+default = ["all_log_levels"]
+
+# Enables debug logging
+debug = ["ledger_device_sdk/debug"]
+all_log_levels = [
     "ledger_device_sdk/log_error",
     "ledger_device_sdk/log_warn",
     "ledger_device_sdk/log_info",
     "ledger_device_sdk/log_debug",
     "ledger_device_sdk/log_trace",
 ]
-
-debug = ["ledger_device_sdk/debug"]
 
 [package.metadata.ledger]
 curve = ["secp256k1"]
