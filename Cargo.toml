@@ -51,7 +51,7 @@ default = [
     "ledger_device_sdk/log_trace",
 ]
 
-debug = ["ledger_device_sdk/debug"]
+debug = ["ledger_device_sdk/debug", "legacy_path"]
 legacy_path = []
 
 [package.metadata.ledger]
