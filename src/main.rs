@@ -296,6 +296,14 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
                 AppSW::Ok
             }
             Err(sw) => {
+                // Reset transaction context in case of error during transaction signing
+                if let Instruction::HashInputStart { .. }
+                | Instruction::HashFinalizeFull { .. }
+                | Instruction::HashSign = ins
+                {
+                    tx_ctx.reset(Default::default());
+                }
+
                 comm.reply(sw);
                 sw
             }

@@ -246,17 +246,16 @@ pub fn handler_hash_input_finalize_full(
                 ParserSourceError::UserDenied => {
                     // User rejected output after review, mark transaction as finished
                     ctx.is_signing_finished = true;
-                    // FIXME: TODO: consider to reset TxContext on any error and for user rejection too
                     AppSW::Deny
                 }
                 ParserSourceError::SwapError {
                     common_code,
                     app_code,
+                    message,
                 } => {
-                    // TODO: improve swap error printing (add message)
                     error!(
-                        "Swap error with common code {} and app code {}",
-                        common_code, app_code
+                        "Swap error with common code {}, app code {}, message {:?}",
+                        common_code, app_code, message
                     );
                     ctx.is_signing_finished = true;
 
@@ -362,7 +361,6 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
     Ok(())
 }
 
-// TODO: split comm append and signature computation
 fn compute_signature_and_append(
     comm: &mut Comm,
     tx_full_hasher: &mut Blake2b_256,
