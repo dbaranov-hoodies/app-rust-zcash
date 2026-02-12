@@ -43,6 +43,7 @@ lto = 'fat'
 
 [features]
 default = [
+    "legacy_path",
     "ledger_device_sdk/nano_nbgl",
     "ledger_device_sdk/log_error",
     "ledger_device_sdk/log_warn",
@@ -51,7 +52,7 @@ default = [
     "ledger_device_sdk/log_trace",
 ]
 
-debug = ["ledger_device_sdk/debug", "legacy_path"]
+debug = ["ledger_device_sdk/debug"]
 legacy_path = []
 
 [package.metadata.ledger]
