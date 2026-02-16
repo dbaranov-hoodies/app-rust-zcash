@@ -198,7 +198,11 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
         return;
     }
 
-    let (show_status, _status_type) = match (ins, status) {
+    #[cfg_attr(
+        any(target_os = "nanox", target_os = "nanosplus"),
+        allow(unused_variables)
+    )]
+    let (show_status, status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
@@ -217,7 +221,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
 
             let success = *status == AppSW::Ok;
             NbglReviewStatus::new()
-                .status_type(_status_type)
+                .status_type(status_type)
                 .show(success);
         }
 
