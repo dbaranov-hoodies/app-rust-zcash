@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from struct import pack
-from .zcash_utils import UINT64_MAX, read_compactsize
+from .zcash_utils import UINT64_MAX, read_compactsize, read_uint
 
 class TransactionError(Exception):
     pass
@@ -29,6 +29,81 @@ class Transaction:
             "to": self.to,
             "memo": self.memo
         }).encode('utf-8')
+
+def split_tx_to_chunks(buf: bytes) -> list[bytes]:
+    version = int.from_bytes(buf[0:8], "little") & 0x7FFF_FFFF
+    if version == 4:
+        split_tx_to_chunks_v5(buf)
+    elif version ==5:
+        split_tx_to_chunks_v5(buf)
+    else:
+        "Transaction version {} not supported".format(version)
+
+
+
+#  V4 TX format:
+#   HEADER
+#  [ nVersion | flags ]           4 bytes
+#  [ nConsensusBranchId ]                   4 bytes
+
+    # TRANSPARENT FIELDS
+    #  [ vin_count ]                  CompactSize
+    #    for each vin:
+    #      [ prev_txid ]              32 bytes (LE)
+    #      [ prev_vout ]               4 bytes (LE)
+    #      [ scriptSig_len ]           CompactSize
+    #      [ scriptSig ]               N bytes
+    #      [ sequence ]                4 bytes (LE)
+    #
+    #  [ vout_count ]                 CompactSize
+    #    for each vout:
+    #      [ value ]                   8 bytes (LE, zatoshis)
+    #      [ scriptPubKey_len ]        CompactSize
+
+#
+#  [lock_time] 4 bytes
+#  [expiry height] (optional, exists in overwintered flag is set ) 4 bytes
+#  [ value_balance] 8 bytes 
+
+##  SHIELDED_TX_FIELDS
+
+## [ vin_count ]                  CompactSize
+#     for each vin
+#        [cv] 32 bytes
+#        [anchor]32 bytes
+#        [nullifier]32 bytes
+#        [zkproof]192 bytes
+#        [SpendAuthSig] 64 bytes
+## [ vout_count ]                  CompactSize
+#   for each vin
+#       [cv] 32 bytes
+#       [cmu] 32 bytes
+#       [ephemeralKey] 32 bytes
+#       [encCiphertext] 580
+#       [outCiphertext]80
+#       [ZkProof] 192
+
+# ....
+#  [joinsplit count] 1 byte
+#  [blinding_sig]  64 bytes
+
+
+def split_tx_to_chunks_v4(buf: bytes) -> list[bytes]:
+    is_overwintered = int.from_bytes(buf[0:4], "little") & 0xFFFF_FF7F
+    n_version = read_uint(buf, 8, "little")
+    n_group_id = read_uint(buf, 8, "little")
+
+    chunks = []
+
+    header_1_size = 8
+    header_bytes = bytes(buf[0:header_1_size]) + bytes(buf[i - 1:i])
+    chunks.append(header_bytes)
+
+
+
+
+  
+
 
 #  V5 TX format:
 #  [ nVersion | flags ]           4 bytes

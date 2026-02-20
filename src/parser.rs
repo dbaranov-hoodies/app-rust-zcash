@@ -273,7 +273,18 @@ impl Parser {
         );
         ctx.tx_info.tx_version = Some(version);
         ctx.tx_info.branch_id = Some(consensus_branch_id);
-
+        // let consensus_branch_id = if version == TxVersion::V5 {
+        //     let value = ok!(reader.read_u32_le());
+        //     Some(ok!(BranchId::try_from(value)))
+        // } else {
+        //     None
+        // };
+        // info!(
+        //     "Transaction version: {:?}, consensus branch id: {:?}",
+        //     version, consensus_branch_id
+        // );
+        // ctx.tx_info.tx_version = Some(version);
+        // ctx.tx_info.branch_id = consensus_branch_id;
         let input_count: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Input count: {}", input_count);
 

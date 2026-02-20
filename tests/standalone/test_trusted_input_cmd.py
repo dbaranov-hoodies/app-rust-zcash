@@ -1,9 +1,17 @@
 # pylint: disable=C0301
 
+import struct
+
 from application_client.zcash_command_sender import ZcashCommandSender
 from application_client.zcash_response_unpacker import unpack_trusted_input_response
+from application_client.zcash_transaction import split_tx_to_chunks_v5
 
 TRUSTED_INPUT_RESPONSE_HEX_LEN = 112
+
+CLA = 0xE0
+INS_GET_TRUSTED_INPUT = 0x42
+P1_FIRST = 0x00
+P1_NEXT = 0x80
 
 def test_trusted_input_transparent_v5_two_inputs(backend):
     TX_BYTES = bytes.fromhex("050000800a27a726b4d0d6c200000000a8841e00021111111111111111111111111111111111111111111111111111111111111111000000006b483045022100e35dd2be5e5aeccce0ff7ff892db278047685bc11d34692fd72a9c1914d05f8e0220426dd0a98b39eb6051df9706e4ff9fba4a8be5cd6ef5c3fdd6f2200c709b2bad01210228d06186c26df6afa96076b0ac64cf0d8caf212937f328a52894183cc36e5dd8ffffffff2222222222222222222222222222222222222222222222222222222222222222010000006b483045022100abb1831a7c59bd893420bfe51df0627f239ac2c1524de86958fe84f122c5344d022046ef451e009e500c12516f082a03ffafd3743f522790b866af88ef202fc83a1d0121037e0c5efb047f692c0c89ea9a817f577dc086303aed2f662df4879c89448287c7ffffffff01a0860100000000001976a914b1630abe4ac3749ca5b0ea4c30a7eae5abab19be88ac000000")
@@ -534,10 +542,15 @@ def test_trusted_input_mixed_v5_old(backend): #inputs from transparent+sapling+o
     assert len(sig) == TXID_LEN
     assert sig[8:8+32*2+8] == EXPECTED_TRUSTED_INPUT
 
-# V4 tx from 3xpl: 39f558daea3b70cf52a306c9ec9b54b2f300e29865101313d1464c559f3a3d32
-# vin: 0, vout: 1, vShieldedSpend: 1, vShieldedOutput: 2
-# All multi-byte ints LE. Fields from json matched by comment.
-TX_V4_3XPL_HEX = (
+
+
+
+def test_trusted_input_v4_sapling_3xpl_tx(backend):
+
+        # V4 tx from 3xpl: 39f558daea3b70cf52a306c9ec9b54b2f300e29865101313d1464c559f3a3d32
+    # # vin: 0, vout: 1, vShieldedSpend: 1, vShieldedOutput: 2
+    # # All multi-byte ints LE. Fields from json matched by comment.
+    TX_V4_3XPL_HEX = (
        ## Common transaction fields
     #header : version 4 overwintered flag is set
     "04000080"
@@ -690,23 +703,10 @@ TX_V4_3XPL_HEX = (
 
 )
 
+    #"""Parse v4 tx from 3xpl (0 transparent in, 1 Sapling spend, 1 transparent out)."""
 
-def test_trusted_input_v4_sapling_3xpl_tx(backend):
-    """Parse v4 tx from 3xpl (0 transparent in, 1 Sapling spend, 1 transparent out)."""
-    TX_BYTES = bytes.fromhex(TX_V4_3XPL_HEX)
-    # 3xpl/Blockchair give canonical V4 with 8-byte header; device expects 12-byte (version + versionGroupId + consensusBranchId)
-    if len(TX_BYTES) >= 8 and TX_BYTES[0] == 4:
-        TX_BYTES = (
-            TX_BYTES[:8]
-            + struct.pack("<I", V4_SAPLING_CONSENSUS_BRANCH_ID)
-            + TX_BYTES[8:]
-        )
-    trusted_input_idx = 0  # Sapling spend is the only input
-    client = ZcashCommandSender(backend)
-    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
-    txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
-    assert txid.hex() == "39f558daea3b70cf52a306c9ec9b54b2f300e29865101313d1464c559f3a3d32"
-    assert idx == trusted_input_idx
+    transport = ZcashCommandSender(backend)
+    sw, _ = transport.exchange_raw("e042000011000000010400008085202f89f04dec4d02")
 
 
 def test_trusted_input_bug(backend):
@@ -742,10 +742,12 @@ def test_trusted_input_bug(backend):
 
     txid = txid[4:4+32 + 4 + 8]
     txid = txid.hex()
+    
     assert txid == "0dcd7781100e0c31c57ee63193c943460c4c7bfbbbe528c03f108903c49c660301000000f9261a0000000000"
 
 def test_NU6_with_tx_version_4(backend):
     transport = ZcashCommandSender(backend)
+
 
     sw, _ = transport.exchange_raw("e042000011000000000400008085202f895510e7c801")
     assert sw == 0x9000
@@ -799,3 +801,129 @@ def test_NU6_with_tx_version_4(backend):
     sw, sig = transport.exchange_raw("e04800001f058000002c8000008580000004000000000000000000000000000100000000")
     assert sw == 0x9000
     assert sig.hex() == "31440220488d0fca08431682cd5f10968a72affdd569f61a4a358f73edf05d0fb4a3e1a702204722751bd7d27f999ed714694ad024465d54c288a9cc560559d9594914d92ac501"
+
+
+
+
+def test_with_tx_version_4_with_sapling(backend):
+    transport = ZcashCommandSender(backend)
+    # this is how lw splits this tx
+
+
+
+    # d2f242c5612c4535454ba38db05af572df3b3dc33f824599faa215edfd668342db45c2128c768aeb343fc56bbe5a167075ad468e69de9bda4963a9848f2073bf4dc8c226e65fdabb5fcc17da5e8d49b9b2619ce2723e52296d27d731f8a14e7f3e188343814128dd4da06efe41954006b5fcb961c1657ac0e28b5bf2791c43c56a4fbcd1937113a879b2942c48cc1b1c90fea15534ecc6b11a0d5ffbfbec944a8d99df38f8eb7bcec9320c09eca2963fa386d98cdf9d28ed8807e05c3b418297628c0152ebe3d79a03df38879ddfaf376539f54aca4d802c2514329678161c547bf0991ec66d290f64954b037eb9550a642da239d65b0bc6ebaf5463351c9b6f87b0341124854e1d64c0e639b43a977bdeecb902dd05bf7610d18b360256f85e2c0e6060cfbac9b6b66e7f9883bb5438b851ac2ec7f0a7af26cb817b2bd2861f5ae670e2d8ba08602dcbb46f9f6bf67b847b49be98619a4d5e1f3179a1cc4e5a140a02a684fb735ccc4ea0e82cb23d1da66008bb14e5f14c5fbc55e98789dc915d89ab06f712fdef0985ed466c775d2283651ec337e4bf7585e4db1689a27cab98a351971a5dff1d43508c60933761431f3cca55bd2282b6df1b26de99511b9231bbbe1830204488dcf9d544f0b6d1208ff72833f76a5a1710a31a60d7621afaba93f0b0807439f038f65b749d81bcafe9a93c4cc38d36741cec7ac097d3e55d36963c8203330191958e9ad203b7bc1ccbf93813f6f698c9d7d229c2bc4bb1eb630b23d52be747b2451e1269e3d93c5559628a3170030ecfa537480634142c848062c314487ea0f3b04a9e6ff1b8b13c56c623e3df3f50828d1e7bb738945376db09f5694eac24ecf1b1957680fda9cc03c284d3e6ef335972e364bc9b5338adea9d2e89049e1f972670581d050c0543774aebcc962c58a0a459770042d01b99abd9dad9bb7d8536640111cb153b9fc97e202fd9a17160db13e558e242c1c8fd2be632d260bc21e9ca3261ca7c983a0044a0f8dea838f1d0849c3f0fa2249959f94e734873f91a604c62fae2b977ac3a53ccda7da588adfb5bfdeeb4da11b932fdac1ff3be92510fd477baf3c5bb8b90a72053707d04e87ddf4de4f7ac3e171cea0a7a4dc31f25a2d453d1890ea78d4d235140d581d1380d12c3844489ccaa9d325a9e003b7cdb3300f7757e6c4001baf7a89531886aaaae831f452612c5e140be544dbf8870dfdc95277b5a1271490650c16f72e756be3223ce77532c6cb170125942eab538a63f85a9af74ef329b6e92eaf3557ad43fa5ac6bba1778a7108260bab1f5e66b407530376ff36efae93847022f52a7a81d68fd8342bffc0dba88a45315ce38bc2a79158b4320b9f5a0accc8f56eedcaf6f0d50fc0e9d5868d3a0b08cb4d9b8a58e3c346886d68e218c0a3b86f2ca93c7de897fc0432540ef9e3ca83ed29e543372e569709703c35a7030594e73f6223b15085ec0fdb6e0dad41715ee69315d18f9985d202ae83a61a25195acbb3fb5f7ccba2af692c8d1574a28dcb3554afa4845601b3e54619bf9944abb5c804fda8174a4a5e57c5f7012b72f5771a0f5244bd7b6d37df72f39c72dc0df9c44d129c6d398fcec953eec4abbfc08c2d7f2e176a8a49d9161c437fb21ea48a7407a281b413e2a6648892db824bb9eefd3f0b51600503793c82220c24309183c43f74ddfec01e760cab9d97c7bb09e0f7b820828629acfa72a3a956e66f1a1dd506a1af7e9af21a8574ab516a38b22c0fb2aa3caf58c1964ebfee112f49e33f9b5c3dbb41862b3624d849ffee0ee501c5a74a70f1ae368ed4416eff739e318ec934c477308eff642c3e88f1145a7e2aa0e3eae4ab07e016d56cddbf08e8bd1143f8c9795be866f9a7e539c8a88bb1e86ce98800bb346e1539f3d0b993adc179bb1f50de34d2d94c53738c4ac0848d2c7db0f87df114834f552a40e7de99784faea91165119e33204021c29cb3b3202b12f918a9a3bb88da3cf377c30364104a3e6af81d744eec194379dff6210c68cdbad1fb0716f0b447f8a08311408f0f10460add9a90b238b2ca40c5a715821f294e5e8cd26a86483925345827b98839c81ea31ba26c59aaaa3d942ad7cdcff6d3303ba8586c0880c66eaf48d61a0b8ef638e89c1f7e9c4813e304c112df668776a551f2499bd0c813c1779f7d53897f35456fd6437ac83d1ef2b1e9441585b608b87702a07b1982c2faa65da78902cb7e85fa1d8ecf8710d53954e4fa089c7f053709aecaddd67f0a35b6c0156a1bccdbfd183bfd046e259a7f1e72655113f74974b0954007a8574dc0b0335afa62ab267bf1c3b1f68e79eaaa6651486db8e752be5e8674ddc9a629f4153b1d7ad3e83771824e4a05f4b35c7305259766bffbfd787f6835a1b01264043b7a0b0ebcc4790ed799642523b3663bc84bf8f82eda3c76bc1304eb81142adec76031643eaef83113b6c369136e68740467656855d505e6cedaff038b3ccce0fd245ad8718e033ab25d668818c840c8157a6686c243795a10b5fb1a7c92c5bdb7645a7f574e2ae5107a4175c16018ba48175b7875e46089687bb05fd4088353443705c92cdb3de35bf90e266d6988c6ae0f62f58cc3da581ba2ab0a000ca34f5069a77739a5a017a8eda5f9e28f2aa5396ac0b28b90af68946db71eb195c3d63e9be33ba2efd21c5d371b0aaac5795d1ad53b12dd5b192fba7e1abad69202a3361481106a21b9bda26ed4a99f077e97c965aa287091ea8381245272baa0ac9d6a222596c354e958ebe1a6cf4401654ac80cc04f639181a2a55bb674a3a2735e5a8c3dfe135e89d4e16797d44a1ae80bfde41d6c51ed3a486626c6154ba3ae8cb37706292335c66e6c0fc0a97a9fb8258004ec793b51562a6c6ea81bab8ffae9e998e727f761e6a889703a826b674636f10f0c9624ae3ef9e740f27ea0f0ade4b24598aeec63dcb4564ea076189dd51899872f4ddbea7381e6bd6d4efbcee9800c6bfb03a6f123bc1ca2a860d49564d3589eb5bea65747da76b967c3e3731e4bd1593ef521c6e5eb1c8a67fcca27ad152099851064cfa0081712a8b0b1938cd3c16628b842df057f828e316445063815780faef93ef15cc8a4b35f7ccb22e792cb3fb99d3333c4f62b7bcccce2c6c40f29767fe647cb4cc9008f286dc501aac5b00b7d203abb2c2363a5af30ef5a9b67edd7695e722b477bc19b5ad3c6d6d32e231df4a3961cf4dbc346fa6b36dc7cd11d3676f4305c7d3b2c1b612e88962bf830a
+    # version + branch_id + tx_in_count
+    #                                                 0400008085202f8900
+    sw, _ = transport.exchange_raw("e04200000d000000000400008085202f8900")
+    assert sw == 0x9000
+    # tx_out_count
+    #                                         01
+    sw, _ = transport.exchange_raw("e04280000101")
+    assert sw == 0x9000
+    # tx_out()+script
+    #                                         a0860100000000001976a914b8ee676250052133c7540e65e7e3aa23d874d99688ac
+    sw, _ = transport.exchange_raw("e042800022a0860100000000001976a914b8ee676250052133c7540e65e7e3aa23d874d99688ac")
+    assert sw == 0x9000
+    #lock_time+ expiry_height +cv without 2 lasy bytes -- etc all will be shifted
+    #   Sent                                 0x0000000000000000
+    #                                          000000000000005f85310038c10100000000000116778d3c7b2905946f72e7c0d95adc03e0b8433019de032e9869cca6d83d
+
+    sw, _ = transport.exchange_raw(" e04280003200000000fd37095f85310038c10100000000000116778d3c7b2905946f72e7c0d95adc03e0b8433019de032e9869cca6d83d ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032d2f242c5612c4535454ba38db05af572df3b3dc33f824599faa215edfd668342db45c2128c768aeb343fc56bbe5a167075ad ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032468e69de9bda4963a9848f2073bf4dc8c226e65fdabb5fcc17da5e8d49b9b2619ce2723e52296d27d731f8a14e7f3e188343 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032814128dd4da06efe41954006b5fcb961c1657ac0e28b5bf2791c43c56a4fbcd1937113a879b2942c48cc1b1c90fea15534ec ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032c6b11a0d5ffbfbec944a8d99df38f8eb7bcec9320c09eca2963fa386d98cdf9d28ed8807e05c3b418297628c0152ebe3d79a ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003203df38879ddfaf376539f54aca4d802c2514329678161c547bf0991ec66d290f64954b037eb9550a642da239d65b0bc6ebaf ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000325463351c9b6f87b0341124854e1d64c0e639b43a977bdeecb902dd05bf7610d18b360256f85e2c0e6060cfbac9b6b66e7f98 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003283bb5438b851ac2ec7f0a7af26cb817b2bd2861f5ae670e2d8ba08602dcbb46f9f6bf67b847b49be98619a4d5e1f3179a1cc ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000324e5a140a02a684fb735ccc4ea0e82cb23d1da66008bb14e5f14c5fbc55e98789dc915d89ab06f712fdef0985ed466c775d22 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003283651ec337e4bf7585e4db1689a27cab98a351971a5dff1d43508c60933761431f3cca55bd2282b6df1b26de99511b9231bb ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032be1830204488dcf9d544f0b6d1208ff72833f76a5a1710a31a60d7621afaba93f0b0807439f038f65b749d81bcafe9a93c4c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032c38d36741cec7ac097d3e55d36963c8203330191958e9ad203b7bc1ccbf93813f6f698c9d7d229c2bc4bb1eb630b23d52be7 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003247b2451e1269e3d93c5559628a3170030ecfa537480634142c848062c314487ea0f3b04a9e6ff1b8b13c56c623e3df3f5082 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000328d1e7bb738945376db09f5694eac24ecf1b1957680fda9cc03c284d3e6ef335972e364bc9b5338adea9d2e89049e1f972670 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032581d050c0543774aebcc962c58a0a459770042d01b99abd9dad9bb7d8536640111cb153b9fc97e202fd9a17160db13e558e2 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003242c1c8fd2be632d260bc21e9ca3261ca7c983a0044a0f8dea838f1d0849c3f0fa2249959f94e734873f91a604c62fae2b977 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032ac3a53ccda7da588adfb5bfdeeb4da11b932fdac1ff3be92510fd477baf3c5bb8b90a72053707d04e87ddf4de4f7ac3e171c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032ea0a7a4dc31f25a2d453d1890ea78d4d235140d581d1380d12c3844489ccaa9d325a9e003b7cdb3300f7757e6c4001baf7a8 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000329531886aaaae831f452612c5e140be544dbf8870dfdc95277b5a1271490650c16f72e756be3223ce77532c6cb170125942ea ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032b538a63f85a9af74ef329b6e92eaf3557ad43fa5ac6bba1778a7108260bab1f5e66b407530376ff36efae93847022f52a7a8 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000321d68fd8342bffc0dba88a45315ce38bc2a79158b4320b9f5a0accc8f56eedcaf6f0d50fc0e9d5868d3a0b08cb4d9b8a58e3c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032346886d68e218c0a3b86f2ca93c7de897fc0432540ef9e3ca83ed29e543372e569709703c35a7030594e73f6223b15085ec0 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032fdb6e0dad41715ee69315d18f9985d202ae83a61a25195acbb3fb5f7ccba2af692c8d1574a28dcb3554afa4845601b3e5461 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000329bf9944abb5c804fda8174a4a5e57c5f7012b72f5771a0f5244bd7b6d37df72f39c72dc0df9c44d129c6d398fcec953eec4a ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032bbfc08c2d7f2e176a8a49d9161c437fb21ea48a7407a281b413e2a6648892db824bb9eefd3f0b51600503793c82220c24309 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032183c43f74ddfec01e760cab9d97c7bb09e0f7b820828629acfa72a3a956e66f1a1dd506a1af7e9af21a8574ab516a38b22c0 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032fb2aa3caf58c1964ebfee112f49e33f9b5c3dbb41862b3624d849ffee0ee501c5a74a70f1ae368ed4416eff739e318ec934c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032477308eff642c3e88f1145a7e2aa0e3eae4ab07e016d56cddbf08e8bd1143f8c9795be866f9a7e539c8a88bb1e86ce98800b ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032b346e1539f3d0b993adc179bb1f50de34d2d94c53738c4ac0848d2c7db0f87df114834f552a40e7de99784faea91165119e3 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000323204021c29cb3b3202b12f918a9a3bb88da3cf377c30364104a3e6af81d744eec194379dff6210c68cdbad1fb0716f0b447f ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000328a08311408f0f10460add9a90b238b2ca40c5a715821f294e5e8cd26a86483925345827b98839c81ea31ba26c59aaaa3d942 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032ad7cdcff6d3303ba8586c0880c66eaf48d61a0b8ef638e89c1f7e9c4813e304c112df668776a551f2499bd0c813c1779f7d5 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000323897f35456fd6437ac83d1ef2b1e9441585b608b87702a07b1982c2faa65da78902cb7e85fa1d8ecf8710d53954e4fa089c7 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032f053709aecaddd67f0a35b6c0156a1bccdbfd183bfd046e259a7f1e72655113f74974b0954007a8574dc0b0335afa62ab267 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032bf1c3b1f68e79eaaa6651486db8e752be5e8674ddc9a629f4153b1d7ad3e83771824e4a05f4b35c7305259766bffbfd787f6 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032835a1b01264043b7a0b0ebcc4790ed799642523b3663bc84bf8f82eda3c76bc1304eb81142adec76031643eaef83113b6c36 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000329136e68740467656855d505e6cedaff038b3ccce0fd245ad8718e033ab25d668818c840c8157a6686c243795a10b5fb1a7c9 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000322c5bdb7645a7f574e2ae5107a4175c16018ba48175b7875e46089687bb05fd4088353443705c92cdb3de35bf90e266d6988c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000326ae0f62f58cc3da581ba2ab0a000ca34f5069a77739a5a017a8eda5f9e28f2aa5396ac0b28b90af68946db71eb195c3d63e9 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032be33ba2efd21c5d371b0aaac5795d1ad53b12dd5b192fba7e1abad69202a3361481106a21b9bda26ed4a99f077e97c965aa2 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003287091ea8381245272baa0ac9d6a222596c354e958ebe1a6cf4401654ac80cc04f639181a2a55bb674a3a2735e5a8c3dfe135 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032e89d4e16797d44a1ae80bfde41d6c51ed3a486626c6154ba3ae8cb37706292335c66e6c0fc0a97a9fb8258004ec793b51562 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032a6c6ea81bab8ffae9e998e727f761e6a889703a826b674636f10f0c9624ae3ef9e740f27ea0f0ade4b24598aeec63dcb4564 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800032ea076189dd51899872f4ddbea7381e6bd6d4efbcee9800c6bfb03a6f123bc1ca2a860d49564d3589eb5bea65747da76b967c ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000323e3731e4bd1593ef521c6e5eb1c8a67fcca27ad152099851064cfa0081712a8b0b1938cd3c16628b842df057f828e3164450 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e04280003263815780faef93ef15cc8a4b35f7ccb22e792cb3fb99d3333c4f62b7bcccce2c6c40f29767fe647cb4cc9008f286dc501aac ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e0428000325b00b7d203abb2c2363a5af30ef5a9b67edd7695e722b477bc19b5ad3c6d6d32e231df4a3961cf4dbc346fa6b36dc7cd11d3 ")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw(" e042800010676f4305c7d3b2c1b612e88962bf830a ")
+    assert sw == 0x9000
+
+
+    
