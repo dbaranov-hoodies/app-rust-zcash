@@ -534,6 +534,181 @@ def test_trusted_input_mixed_v5_old(backend): #inputs from transparent+sapling+o
     assert len(sig) == TXID_LEN
     assert sig[8:8+32*2+8] == EXPECTED_TRUSTED_INPUT
 
+# V4 tx from 3xpl: 39f558daea3b70cf52a306c9ec9b54b2f300e29865101313d1464c559f3a3d32
+# vin: 0, vout: 1, vShieldedSpend: 1, vShieldedOutput: 2
+# All multi-byte ints LE. Fields from json matched by comment.
+TX_V4_3XPL_HEX = (
+       ## Common transaction fields
+    #header : version 4 overwintered flag is set
+    "04000080"
+    #nVersionGroupId
+    "85202f89"
+    #nConsensusBranchId 
+    #is missing in v4
+    
+    ##Transparent Transaction Fields
+    #tx_in_count
+    "00"
+    # tx_in
+    ## empty
+    #tx_out_count
+    "01"
+    #tx_out 
+    "a086010000000000"
+
+    #script len (25bytes)
+    "19"
+    #script 
+    #OP_DUP
+    "76"
+    #OP_HASH160
+    "a9"  #PUSH20  ADDRESS_hash160
+    "14" "b8ee676250052133c7540e65e7e3aa23d874d996"
+    #OP_EQUALVERIFY
+    "88"
+    #OP_CHECKSIG
+    "ac"
+
+    #lock_time
+    "00000000"
+    #expiry_height
+    "5f853100"
+    #value_balance
+    "38c1010000000000"
+
+
+    # shielded spend count
+    "01"
+    # shielded spend description
+    #cv
+    "16778d3c7b2905946f72e7c0d95adc03e0b8433019de032e9869cca6d83dd2f2"
+    # anchor
+    "42c5612c4535454ba38db05af572df3b3dc33f824599faa215edfd668342db45"
+    #nullifier
+    "c2128c768aeb343fc56bbe5a167075ad468e69de9bda4963a9848f2073bf4dc8"
+    #rk
+    "c226e65fdabb5fcc17da5e8d49b9b2619ce2723e52296d27d731f8a14e7f3e18"
+    #zkproof
+    "8343814128dd4da06efe41954006b5fcb961c1657ac0e28b5bf2791c43c56a4f"
+    "bcd1937113a879b2942c48cc1b1c90fea15534ecc6b11a0d5ffbfbec944a8d99"
+    "df38f8eb7bcec9320c09eca2963fa386d98cdf9d28ed8807e05c3b418297628c"
+    "0152ebe3d79a03df38879ddfaf376539f54aca4d802c2514329678161c547bf0"
+    "991ec66d290f64954b037eb9550a642da239d65b0bc6ebaf5463351c9b6f87b0"
+    "341124854e1d64c0e639b43a977bdeecb902dd05bf7610d18b360256f85e2c0e"
+    #SpendAuthSig
+    "6060cfbac9b6b66e7f9883bb5438b851ac2ec7f0a7af26cb817b2bd2861f5ae6"
+    "70e2d8ba08602dcbb46f9f6bf67b847b49be98619a4d5e1f3179a1cc4e5a140a"
+
+    #VshieldedOutput
+    #count
+    "02"
+    # 1st VshieldedOutput
+    #cv
+    "a684fb735ccc4ea0e82cb23d1da66008bb14e5f14c5fbc55e98789dc915d89ab"
+    #CMU
+    "06f712fdef0985ed466c775d2283651ec337e4bf7585e4db1689a27cab98a351"
+    #ephemeralKey
+    "971a5dff1d43508c60933761431f3cca55bd2282b6df1b26de99511b9231bbbe"
+    #encCiphertext (580bytes)
+    "1830204488dcf9d544f0b6d1208ff72833f76a5a1710a31a60d7621afaba93f0"
+    "b0807439f038f65b749d81bcafe9a93c4cc38d36741cec7ac097d3e55d36963c"
+    "8203330191958e9ad203b7bc1ccbf93813f6f698c9d7d229c2bc4bb1eb630b23"
+    "d52be747b2451e1269e3d93c5559628a3170030ecfa537480634142c848062c3"
+    "14487ea0f3b04a9e6ff1b8b13c56c623e3df3f50828d1e7bb738945376db09f5"
+    "694eac24ecf1b1957680fda9cc03c284d3e6ef335972e364bc9b5338adea9d2e"
+    "89049e1f972670581d050c0543774aebcc962c58a0a459770042d01b99abd9da"
+    "d9bb7d8536640111cb153b9fc97e202fd9a17160db13e558e242c1c8fd2be632"
+    "d260bc21e9ca3261ca7c983a0044a0f8dea838f1d0849c3f0fa2249959f94e73"
+    "4873f91a604c62fae2b977ac3a53ccda7da588adfb5bfdeeb4da11b932fdac1f"
+    "f3be92510fd477baf3c5bb8b90a72053707d04e87ddf4de4f7ac3e171cea0a7a"
+    "4dc31f25a2d453d1890ea78d4d235140d581d1380d12c3844489ccaa9d325a9e"
+    "003b7cdb3300f7757e6c4001baf7a89531886aaaae831f452612c5e140be544d"
+    "bf8870dfdc95277b5a1271490650c16f72e756be3223ce77532c6cb170125942"
+    "eab538a63f85a9af74ef329b6e92eaf3557ad43fa5ac6bba1778a7108260bab1"
+    "f5e66b407530376ff36efae93847022f52a7a81d68fd8342bffc0dba88a45315"
+    "ce38bc2a79158b4320b9f5a0accc8f56eedcaf6f0d50fc0e9d5868d3a0b08cb4"
+    "d9b8a58e3c346886d68e218c0a3b86f2ca93c7de897fc0432540ef9e3ca83ed2"
+    "9e543372"
+    # outCiphertext (80bytes)
+    "e569709703c35a7030594e73f6223b15085ec0fdb6e0dad41715ee69315d18f9"
+    "985d202ae83a61a25195acbb3fb5f7ccba2af692c8d1574a28dcb3554afa4845"
+    "601b3e54619bf9944abb5c804fda8174"
+    # ZkProof
+    "a4a5e57c5f7012b72f5771a0f5244bd7b6d37df72f39c72dc0df9c44d129c6d3"
+    "98fcec953eec4abbfc08c2d7f2e176a8a49d9161c437fb21ea48a7407a281b41"
+    "3e2a6648892db824bb9eefd3f0b51600503793c82220c24309183c43f74ddfec"
+    "01e760cab9d97c7bb09e0f7b820828629acfa72a3a956e66f1a1dd506a1af7e9"
+    "af21a8574ab516a38b22c0fb2aa3caf58c1964ebfee112f49e33f9b5c3dbb418"
+    "62b3624d849ffee0ee501c5a74a70f1ae368ed4416eff739e318ec934c477308"
+    
+    # 2nd VshieldedOutput
+    #cv
+    "eff642c3e88f1145a7e2aa0e3eae4ab07e016d56cddbf08e8bd1143f8c9795be"
+    #CMU 
+    "866f9a7e539c8a88bb1e86ce98800bb346e1539f3d0b993adc179bb1f50de34d"
+    #ephemeralKey
+    "2d94c53738c4ac0848d2c7db0f87df114834f552a40e7de99784faea91165119"
+    #encCiphertext (580bytes)
+    "e33204021c29cb3b3202b12f918a9a3bb88da3cf377c30364104a3e6af81d744"
+    "eec194379dff6210c68cdbad1fb0716f0b447f8a08311408f0f10460add9a90b"
+    "238b2ca40c5a715821f294e5e8cd26a86483925345827b98839c81ea31ba26c5"
+    "9aaaa3d942ad7cdcff6d3303ba8586c0880c66eaf48d61a0b8ef638e89c1f7e9"
+    "c4813e304c112df668776a551f2499bd0c813c1779f7d53897f35456fd6437ac"
+    "83d1ef2b1e9441585b608b87702a07b1982c2faa65da78902cb7e85fa1d8ecf8"
+    "710d53954e4fa089c7f053709aecaddd67f0a35b6c0156a1bccdbfd183bfd046"
+    "e259a7f1e72655113f74974b0954007a8574dc0b0335afa62ab267bf1c3b1f68"
+    "e79eaaa6651486db8e752be5e8674ddc9a629f4153b1d7ad3e83771824e4a05f"
+    "4b35c7305259766bffbfd787f6835a1b01264043b7a0b0ebcc4790ed79964252"
+    "3b3663bc84bf8f82eda3c76bc1304eb81142adec76031643eaef83113b6c3691"
+    "36e68740467656855d505e6cedaff038b3ccce0fd245ad8718e033ab25d66881"
+    "8c840c8157a6686c243795a10b5fb1a7c92c5bdb7645a7f574e2ae5107a4175c"
+    "16018ba48175b7875e46089687bb05fd4088353443705c92cdb3de35bf90e266"
+    "d6988c6ae0f62f58cc3da581ba2ab0a000ca34f5069a77739a5a017a8eda5f9e"
+    "28f2aa5396ac0b28b90af68946db71eb195c3d63e9be33ba2efd21c5d371b0aa"
+    "ac5795d1ad53b12dd5b192fba7e1abad69202a3361481106a21b9bda26ed4a99"
+    "f077e97c965aa287091ea8381245272baa0ac9d6a222596c354e958ebe1a6cf4"
+    "401654ac"
+    # outCiphertext (80bytes)
+    "80cc04f639181a2a55bb674a3a2735e5a8c3dfe135e89d4e16797d44a1ae80bf"
+    "de41d6c51ed3a486626c6154ba3ae8cb37706292335c66e6c0fc0a97a9fb8258"
+    "004ec793b51562a6c6ea81bab8ffae9e"
+    # ZkProof 
+    "998e727f761e6a889703a826b674636f10f0c9624ae3ef9e740f27ea0f0ade4b"
+    "24598aeec63dcb4564ea076189dd51899872f4ddbea7381e6bd6d4efbcee9800"
+    "c6bfb03a6f123bc1ca2a860d49564d3589eb5bea65747da76b967c3e3731e4bd"
+    "1593ef521c6e5eb1c8a67fcca27ad152099851064cfa0081712a8b0b1938cd3c"
+    "16628b842df057f828e316445063815780faef93ef15cc8a4b35f7ccb22e792c"
+    "b3fb99d3333c4f62b7bcccce2c6c40f29767fe647cb4cc9008f286dc501aac5b"
+
+    ##joinsplit count
+    "00"
+
+    #binding_sig
+    "b7d203abb2c2363a5af30ef5a9b67edd7695e722b477bc19b5ad3c6d6d32e231"
+    "df4a3961cf4dbc346fa6b36dc7cd11d3676f4305c7d3b2c1b612e88962bf830a"
+
+
+)
+
+
+def test_trusted_input_v4_sapling_3xpl_tx(backend):
+    """Parse v4 tx from 3xpl (0 transparent in, 1 Sapling spend, 1 transparent out)."""
+    TX_BYTES = bytes.fromhex(TX_V4_3XPL_HEX)
+    # 3xpl/Blockchair give canonical V4 with 8-byte header; device expects 12-byte (version + versionGroupId + consensusBranchId)
+    if len(TX_BYTES) >= 8 and TX_BYTES[0] == 4:
+        TX_BYTES = (
+            TX_BYTES[:8]
+            + struct.pack("<I", V4_SAPLING_CONSENSUS_BRANCH_ID)
+            + TX_BYTES[8:]
+        )
+    trusted_input_idx = 0  # Sapling spend is the only input
+    client = ZcashCommandSender(backend)
+    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
+    txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
+    assert txid.hex() == "39f558daea3b70cf52a306c9ec9b54b2f300e29865101313d1464c559f3a3d32"
+    assert idx == trusted_input_idx
+
+
 def test_trusted_input_bug(backend):
     transport = ZcashCommandSender(backend)
     sw, _ = transport.exchange_raw("e042000011000000010400008085202f89f04dec4d02")
